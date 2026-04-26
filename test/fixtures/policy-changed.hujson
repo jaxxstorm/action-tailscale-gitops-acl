@@ -1,0 +1,33 @@
+{
+  // Changed policy fixture used to exercise validation/reporting diffs.
+  "tagOwners": {
+    "tag:ci-runner": ["autogroup:admin"],
+    "tag:fixture-server": ["autogroup:admin"],
+    "tag:fixture-admin": ["autogroup:admin"],
+  },
+
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["tag:ci-runner"],
+      "dst": ["tag:fixture-server:443"],
+    },
+    {
+      "action": "accept",
+      "src": ["tag:fixture-admin"],
+      "dst": ["tag:fixture-server:22"],
+    },
+  ],
+
+  "tests": [
+    {
+      "src": "tag:ci-runner",
+      "accept": ["tag:fixture-server:443"],
+      "deny": ["tag:fixture-server:22"],
+    },
+    {
+      "src": "tag:fixture-admin",
+      "accept": ["tag:fixture-server:22"],
+    },
+  ],
+}

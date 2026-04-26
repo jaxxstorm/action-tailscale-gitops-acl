@@ -1,0 +1,33 @@
+{
+  // Out-of-band control policy used to simulate a manual ACL edit.
+  "tagOwners": {
+    "tag:ci-runner": ["autogroup:admin"],
+    "tag:fixture-server": ["autogroup:admin"],
+    "tag:manual-drift": ["autogroup:admin"],
+  },
+
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["tag:ci-runner"],
+      "dst": ["tag:fixture-server:443"],
+    },
+    {
+      "action": "accept",
+      "src": ["tag:manual-drift"],
+      "dst": ["tag:fixture-server:8443"],
+    },
+  ],
+
+  "tests": [
+    {
+      "src": "tag:ci-runner",
+      "accept": ["tag:fixture-server:443"],
+      "deny": ["tag:fixture-server:22"],
+    },
+    {
+      "src": "tag:manual-drift",
+      "accept": ["tag:fixture-server:8443"],
+    },
+  ],
+}

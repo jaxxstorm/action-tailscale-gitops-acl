@@ -1,0 +1,24 @@
+{
+  // Portable baseline policy used by internal GitHub Actions integration tests.
+  // It intentionally uses tags instead of real users or devices.
+  "tagOwners": {
+    "tag:ci-runner": ["autogroup:admin"],
+    "tag:fixture-server": ["autogroup:admin"],
+  },
+
+  "acls": [
+    {
+      "action": "accept",
+      "src": ["tag:ci-runner"],
+      "dst": ["tag:fixture-server:443"],
+    },
+  ],
+
+  "tests": [
+    {
+      "src": "tag:ci-runner",
+      "accept": ["tag:fixture-server:443"],
+      "deny": ["tag:fixture-server:22"],
+    },
+  ],
+}

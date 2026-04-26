@@ -159,9 +159,15 @@ always runs `action: test`, so it verifies the client credentials exchange
 without writing the tailnet policy. You can also run the workflow manually with
 `workflow_dispatch` and choose the OIDC mode.
 
-The workflow uses `test/fixtures/policy.hujson`. Configure it against a
-dedicated test tailnet, because the `apply` path updates that tailnet's policy
-file.
+The workflow uses named fixtures under `test/fixtures/`:
+
+- `policy-baseline.hujson` for the expected steady-state ACL.
+- `policy-changed.hujson` for validation/reporting coverage that should show a
+  policy diff.
+- `policy-manual-drift.hujson` for simulating an out-of-band ACL edit.
+
+Configure the workflow against a dedicated test tailnet, because the `apply`
+and manual-drift paths update that tailnet's policy file.
 
 To enable the OIDC job:
 
@@ -189,18 +195,37 @@ To enable the OAuth credentials job:
 3. Run the `Integration` workflow. The `OAuth credentials test` job should run
    independently of the OIDC job.
 
-Both integration jobs always run. Missing or invalid credentials fail the
-workflow, which keeps credential drift visible in CI.
-The jobs run in series, and the workflow has a concurrency group so separate
+To enable the manual ACL drift scenario:
+
+1. Create or reuse an API key for the same dedicated test tailnet with the
+   `policy_file` scope.
+2. Add `TS_API_KEY` to the repository's GitHub Actions secrets.
+3. Run the `Integration` workflow from `main` or with `workflow_dispatch`. The
+   drift job applies the baseline fixture with the local action, modifies the
+   remote ACL directly through the Tailscale API with `policy-manual-drift.hujson`,
+   runs the local action again to surface the modified-externally warning, and
+   then attempts to restore the baseline fixture.
+
+The OIDC and OAuth integration jobs always run. The manual drift job runs for
+push and manual workflow runs, but not for pull requests. Missing or invalid
+credentials fail the relevant live job, which keeps credential drift visible in
+CI. The jobs run in series, and the workflow has a concurrency group so separate
 integration runs do not update the ACL at the same time.
+
+Pull request CI also has guarded live-action coverage. For same-repository pull
+requests with Tailscale OAuth secrets available, `.github/workflows/pull-request.yml`
+invokes the local action in `test` mode against both the changed and baseline
+fixtures and allows the action-owned PR report comment to be created or updated.
+Forked PRs or PRs without the required secrets skip those live-action steps and
+still run unit tests and build checks.
 
 ## Benchmark setup
 
 The repository also includes `.github/workflows/benchmark.yml`, a manual
 `workflow_dispatch` workflow that compares the runtime of this local checked-in
 action against `tailscale/gitops-acl-action@v1`. It runs both actions in
-`test` mode against `test/fixtures/policy.hujson` and writes a comparison table
-to the workflow run summary.
+`test` mode against `test/fixtures/policy-baseline.hujson` and writes a
+comparison table to the workflow run summary.
 
 To run the benchmark, add these GitHub Actions secrets:
 

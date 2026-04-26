@@ -25,7 +25,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TS_POLICY_FILE: test/fixtures/policy.hujson
+  TS_BASELINE_POLICY_FILE: test/fixtures/policy-baseline.hujson
+  TS_CHANGED_POLICY_FILE: test/fixtures/policy-changed.hujson
+  TS_MANUAL_DRIFT_POLICY_FILE: test/fixtures/policy-manual-drift.hujson
 
 jobs:
   oidc:
@@ -67,7 +69,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
           audience: ${{ secrets.TS_AUDIENCE }}
           tailnet: ${{ secrets.TS_TAILNET }}
-          policy-file: ${{ env.TS_POLICY_FILE }}
+          policy-file: ${{ env.TS_BASELINE_POLICY_FILE }}
           action: test
 
       - name: Apply ACL with OIDC
@@ -81,7 +83,7 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
           audience: ${{ secrets.TS_AUDIENCE }}
           tailnet: ${{ secrets.TS_TAILNET }}
-          policy-file: ${{ env.TS_POLICY_FILE }}
+          policy-file: ${{ env.TS_BASELINE_POLICY_FILE }}
           action: apply
 
   oauth-credentials:
@@ -112,5 +114,114 @@ jobs:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tailnet: ${{ secrets.TS_TAILNET }}
-          policy-file: ${{ env.TS_POLICY_FILE }}
+          policy-file: ${{ env.TS_CHANGED_POLICY_FILE }}
           action: test
+
+  manual-drift:
+    name: Manual ACL drift warning
+    runs-on: ubuntu-latest
+    needs: oauth-credentials
+    if: ${{ always() && github.event_name != 'pull_request' }}
+    env:
+      TS_API_KEY: ${{ secrets.TS_API_KEY }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      TS_TAILNET: ${{ secrets.TS_TAILNET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build local action
+        run: npm run build
+
+      - name: Check manual drift credentials
+        run: |
+          missing=0
+          for name in TS_API_KEY TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET TS_TAILNET; do
+            if [ -z "${!name}" ]; then
+              echo "::error::${name} is required for the manual ACL drift integration scenario"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Reset local action cache
+        run: rm -f version-cache.json
+
+      - name: Apply known baseline with local action
+        uses: ./
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tailnet: ${{ env.TS_TAILNET }}
+          policy-file: ${{ env.TS_BASELINE_POLICY_FILE }}
+          action: apply
+
+      - name: Manually modify ACL through Tailscale API
+        run: |
+          set -euo pipefail
+
+          auth="$(printf '%s:' "$TS_API_KEY" | base64 | tr -d '\n')"
+          tailnet="$(node -e 'process.stdout.write(encodeURIComponent(process.env.TS_TAILNET || ""))')"
+          url="https://api.tailscale.com/api/v2/tailnet/${tailnet}/acl"
+          headers="$(mktemp)"
+
+          curl -fsS -D "$headers" -o /tmp/current-policy.hujson \
+            -H "Accept: application/hujson" \
+            -H "Authorization: Basic ${auth}" \
+            "$url"
+          etag="$(awk 'BEGIN { IGNORECASE=1 } /^etag:/ { gsub("\r", "", $2); gsub("\"", "", $2); print $2 }' "$headers" | tail -n 1)"
+
+          curl -fsS -X POST \
+            -H "Authorization: Basic ${auth}" \
+            -H "Content-Type: application/hujson" \
+            -H "If-Match: \"${etag}\"" \
+            --data-binary "@${TS_MANUAL_DRIFT_POLICY_FILE}" \
+            "$url"
+
+      - name: Test baseline after manual drift
+        uses: ./
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tailnet: ${{ env.TS_TAILNET }}
+          policy-file: ${{ env.TS_BASELINE_POLICY_FILE }}
+          action: test
+
+      - name: Restore baseline through Tailscale API
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TS_API_KEY}" ] || [ -z "${TS_TAILNET}" ]; then
+            echo "Skipping baseline restore because Tailscale API credentials are unavailable."
+            exit 0
+          fi
+
+          auth="$(printf '%s:' "$TS_API_KEY" | base64 | tr -d '\n')"
+          tailnet="$(node -e 'process.stdout.write(encodeURIComponent(process.env.TS_TAILNET || ""))')"
+          url="https://api.tailscale.com/api/v2/tailnet/${tailnet}/acl"
+          headers="$(mktemp)"
+
+          curl -fsS -D "$headers" -o /tmp/current-policy.hujson \
+            -H "Accept: application/hujson" \
+            -H "Authorization: Basic ${auth}" \
+            "$url"
+          etag="$(awk 'BEGIN { IGNORECASE=1 } /^etag:/ { gsub("\r", "", $2); gsub("\"", "", $2); print $2 }' "$headers" | tail -n 1)"
+
+          curl -fsS -X POST \
+            -H "Authorization: Basic ${auth}" \
+            -H "Content-Type: application/hujson" \
+            -H "If-Match: \"${etag}\"" \
+            --data-binary "@${TS_BASELINE_POLICY_FILE}" \
+            "$url"

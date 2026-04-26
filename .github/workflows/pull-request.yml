@@ -5,10 +5,20 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: read
+
+env:
+  TS_BASELINE_POLICY_FILE: test/fixtures/policy-baseline.hujson
+  TS_CHANGED_POLICY_FILE: test/fixtures/policy-changed.hujson
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      TS_TAILNET: ${{ secrets.TS_TAILNET }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -30,3 +40,31 @@ jobs:
 
       - name: Check generated dist
         run: git diff --exit-code dist/index.js
+
+      - name: Test changed ACL with local action
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && env.TS_OAUTH_CLIENT_ID != '' && env.TS_OAUTH_SECRET != '' && env.TS_TAILNET != '' }}
+        uses: ./
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tailnet: ${{ env.TS_TAILNET }}
+          policy-file: ${{ env.TS_CHANGED_POLICY_FILE }}
+          action: test
+
+      - name: Test baseline ACL with local action
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && env.TS_OAUTH_CLIENT_ID != '' && env.TS_OAUTH_SECRET != '' && env.TS_TAILNET != '' }}
+        uses: ./
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          oauth-client-id: ${{ env.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ env.TS_OAUTH_SECRET }}
+          tailnet: ${{ env.TS_TAILNET }}
+          policy-file: ${{ env.TS_BASELINE_POLICY_FILE }}
+          action: test
+
+      - name: Skip live PR action coverage
+        if: ${{ github.event.pull_request.head.repo.full_name != github.repository || env.TS_OAUTH_CLIENT_ID == '' || env.TS_OAUTH_SECRET == '' || env.TS_TAILNET == '' }}
+        run: echo "Skipping live PR action coverage because this is a forked PR or Tailscale secrets are unavailable."
