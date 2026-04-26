@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 
 import { formatHuJSON, hashFormattedHuJSON, standardizeHuJSON } from "./index.js";
 
@@ -6,12 +7,12 @@ describe("hujson compatibility helpers", () => {
   it("formats JWCC with comments and trailing commas deterministically", () => {
     const input = "{\n\t// users\n\t\"groups\": {\n\t\t\"group:dev\": [\"alice@example.com\",],\n\t},\n}\n";
     expect(formatHuJSON(input)).toBe(`{
-  "groups": {
-    "group:dev": [
-      "alice@example.com"
-    ]
-  }
-}`);
+	// users
+	"groups": {
+		"group:dev": ["alice@example.com"],
+	},
+}
+`);
   });
 
   it("standardizes comments and trailing commas", () => {
@@ -27,6 +28,12 @@ describe("hujson compatibility helpers", () => {
     const input = "{\"a\":1}\n";
     const formatted = formatHuJSON(input);
     expect(hashFormattedHuJSON(input)).toBe(createHash("sha256").update(formatted).digest("hex"));
+  });
+
+  it("matches the Go gitops-pusher ETag for the integration fixture", async () => {
+    const fixtureUrl = new URL("../../test/fixtures/policy.hujson", import.meta.url);
+    const input = await readFile(fixtureUrl, "utf8");
+    expect(hashFormattedHuJSON(input)).toBe("bb56d706b5246ba38a8427768948eca9cc116158badc0c216282fd2f19f5af29");
   });
 
   it("rejects invalid JWCC", () => {
