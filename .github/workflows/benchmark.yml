@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TS_POLICY_FILE: test/fixtures/policy.hujson
+  TS_POLICY_FILE: test/fixtures/policy-baseline.hujson
 
 jobs:
   compare:
