@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import { getCredentials } from "./auth.js";
 import { loadCache, saveCache } from "./cache.js";
 import { createPolicyDiff } from "./diff.js";
-import { ACLGitopsTestError, modifiedExternallyWarning } from "./errors.js";
+import { ACLGitopsTestError, modifiedExternallyWarning, modifiedExternallyWarningMessage } from "./errors.js";
 import { formatHuJSON, hashFormattedHuJSON, standardizeHuJSON } from "./hujson/index.js";
 import { reportRun, RunMode, RunReport } from "./reporting.js";
 import { TailscaleClient } from "./tailscale.js";
@@ -89,6 +89,10 @@ export async function run(): Promise<void> {
 
     if (cache.PrevETag !== controlEtag) {
       core.info(modifiedExternallyWarning(policyFile));
+      report = {
+        ...report,
+        warnings: [...(report.warnings ?? []), modifiedExternallyWarningMessage],
+      };
     }
 
     if (action === "apply") {

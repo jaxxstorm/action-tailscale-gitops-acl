@@ -1,8 +1,4 @@
-## Purpose
-
-Define the review-facing and run-facing reporting behavior for Tailscale ACL validation and apply runs.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Pull request policy diff comment
 
@@ -56,50 +52,3 @@ The action SHALL write a GitHub Actions job summary that records the result of t
 
 - **WHEN** the cached ETag differs from the current control ETag
 - **THEN** the job summary includes a warning that the policy file was modified externally
-
-### Requirement: Reporting is best-effort
-
-Reporting failures SHALL NOT change the action's validation, apply, cache, or ETag outcomes.
-
-#### Scenario: Pull request comment cannot be published
-
-- **WHEN** the action is otherwise successful but the pull request comment cannot be created or updated
-- **THEN** the action logs the reporting failure and preserves the original successful action result
-
-#### Scenario: Job summary cannot be written
-
-- **WHEN** the action is otherwise successful but the job summary cannot be written
-- **THEN** the action logs the reporting failure and preserves the original successful action result
-
-### Requirement: Upstream-compatible behavior is preserved
-
-The action MUST preserve upstream-compatible auth modes, action modes, validation behavior, apply behavior, cache file behavior, and ETag calculation while adding reporting output.
-
-#### Scenario: Existing workflow without reporting-specific configuration
-
-- **WHEN** an existing workflow runs with inputs compatible with `tailscale/gitops-acl-action`
-- **THEN** the action accepts the same inputs and performs the same Tailscale validation or apply behavior while adding only best-effort reporting output
-
-#### Scenario: Cache and ETag handling
-
-- **WHEN** the action compares control, local, and cached ETags
-- **THEN** reporting does not alter the values used for comparison, the local hash calculation, or the cache file contents
-
-### Requirement: Internal pull request reporting coverage
-
-The repository SHALL include internal pull request workflow coverage for the action-owned pull request report behavior.
-
-#### Scenario: Pull request workflow can publish report comment
-
-- **WHEN** an internal pull request workflow invokes the local action with a GitHub token and a changed policy fixture
-- **THEN** the action publishes or updates the action-owned pull request report comment with policy comparison output
-
-#### Scenario: Pull request workflow can report no diff
-
-- **WHEN** an internal pull request workflow invokes the local action with a fixture matching the current control policy
-- **THEN** the action publishes or updates the action-owned pull request report comment to state that no policy diff is present
-
-#### Scenario: Reporting coverage remains best-effort
-
-- **WHEN** internal pull request report publication fails because GitHub token permissions or event context are unavailable
-- **THEN** the workflow preserves the action's validation result and surfaces the reporting failure in logs

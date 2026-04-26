@@ -28541,8 +28541,9 @@ function formatACLGitopsTestError(body, policyFile) {
     return `${parts.join("\n")}\n`;
 }
 function modifiedExternallyWarning(policyFile) {
-    return `::warning file=${policyFile},line=1,col=1,title=Policy File Modified Externally::The policy file was modified externally in the admin console.`;
+    return `::warning file=${policyFile},line=1,col=1,title=Policy File Modified Externally::${modifiedExternallyWarningMessage}`;
 }
+const modifiedExternallyWarningMessage = "The policy file was modified externally in the admin console.";
 
 // EXTERNAL MODULE: external "node:crypto"
 var external_node_crypto_ = __nccwpck_require__(7598);
@@ -28619,6 +28620,9 @@ function renderSummary(report) {
     if (report.message) {
         lines.push("", report.message);
     }
+    if (report.warnings && report.warnings.length > 0) {
+        lines.push("", "### Warnings", "", ...report.warnings.map((warning) => `- ${warning}`));
+    }
     if (report.diff) {
         lines.push("", "### Policy Diff", "", fencedDiff(report.diff));
     }
@@ -28634,6 +28638,9 @@ function renderPullRequestComment(report) {
         `Policy file: ${report.policyFile}`,
         "",
     ];
+    if (report.warnings && report.warnings.length > 0) {
+        lines.push("### Warnings", "", ...report.warnings.map((warning) => `- ${warning}`), "");
+    }
     if (report.diff) {
         lines.push("### Policy Diff", "", fencedDiff(report.diff));
     }
@@ -28888,6 +28895,10 @@ async function run() {
         }
         if (cache.PrevETag !== controlEtag) {
             core.info(modifiedExternallyWarning(policyFile));
+            report = {
+                ...report,
+                warnings: [...(report.warnings ?? []), modifiedExternallyWarningMessage],
+            };
         }
         if (action === "apply") {
             await client.applyACL(policyFile, policy, controlEtag);

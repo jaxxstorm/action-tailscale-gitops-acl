@@ -45,6 +45,22 @@ describe("reporting", () => {
     expect(core.summary.write).toHaveBeenCalled();
   });
 
+  it("writes report warnings in the action summary", async () => {
+    await writeRunSummary({
+      mode: "test",
+      tailnet: "example.com",
+      policyFile: "policy.hujson",
+      outcome: "validated",
+      policyChanged: true,
+      warnings: ["The policy file was modified externally in the admin console."],
+    });
+
+    expect(core.summary.addRaw).toHaveBeenCalledWith(expect.stringContaining("### Warnings"));
+    expect(core.summary.addRaw).toHaveBeenCalledWith(
+      expect.stringContaining("- The policy file was modified externally in the admin console."),
+    );
+  });
+
   it("creates a pull request comment with a policy diff", async () => {
     const eventPath = await writePullRequestEvent();
     vi.stubEnv("GITHUB_TOKEN", "token");
@@ -73,6 +89,40 @@ describe("reporting", () => {
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining("```diff"),
+      }),
+    );
+  });
+
+  it("creates a pull request comment with report warnings", async () => {
+    const eventPath = await writePullRequestEvent();
+    vi.stubEnv("GITHUB_TOKEN", "token");
+    vi.stubEnv("GITHUB_EVENT_NAME", "pull_request");
+    vi.stubEnv("GITHUB_EVENT_PATH", eventPath);
+    vi.stubEnv("GITHUB_REPOSITORY", "owner/repo");
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response("[]", { status: 200 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 201 }));
+
+    await publishPullRequestReport({
+      mode: "test",
+      tailnet: "example.com",
+      policyFile: "policy.hujson",
+      outcome: "validated",
+      policyChanged: true,
+      warnings: ["The policy file was modified externally in the admin console."],
+    });
+
+    expect(fetch).toHaveBeenLastCalledWith(
+      "https://api.github.com/repos/owner/repo/issues/12/comments",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("### Warnings"),
+      }),
+    );
+    expect(fetch).toHaveBeenLastCalledWith(
+      "https://api.github.com/repos/owner/repo/issues/12/comments",
+      expect.objectContaining({
+        body: expect.stringContaining("- The policy file was modified externally in the admin console."),
       }),
     );
   });
