@@ -1,0 +1,61 @@
+schema: spec-driven
+
+context: |
+  Project: action-tailscale-gitops-acl
+
+  This repository contains a GitHub Action that syncs a Tailscale tailnet policy
+  file from a git repository to the Tailscale API. It supports both validation
+  workflows for pull requests and apply workflows for changes merged to the
+  default branch.
+
+  Domain:
+  - Tailscale tailnet policy files, also known as ACL files, are HuJSON files.
+  - The action talks to the Tailscale API to fetch the current ACL ETag, validate
+    proposed policy content, and apply policy updates.
+  - Correct ETag handling is critical. The local policy hash must stay compatible
+    with Tailscale's Go gitops-pusher behavior and the upstream
+    tailscale/gitops-acl-action implementation.
+
+  Compatibility:
+  - The action is intended to be fully backwards compatible with
+    https://github.com/tailscale/gitops-acl-action.
+  - Inputs, action modes, cache behavior, and API semantics should remain
+    compatible unless a spec explicitly calls out a breaking change.
+  - Do not introduce moving major-version tag assumptions such as v1/v2 release
+    tags; releases are immutable git tags.
+
+  Authentication:
+  - The action supports all Tailscale auth modes exposed by the upstream action:
+    API key authentication, OAuth client credentials, and GitHub OIDC federated
+    identity token exchange.
+  - API keys are supported for compatibility, but long-lived workflows should
+    prefer OAuth credentials or OIDC federated identity.
+
+  Implementation:
+  - Runtime: GitHub JavaScript action using Node 24.
+  - Language: TypeScript, emitted to checked-in JavaScript under dist/.
+  - Package manager: npm with package-lock.json.
+  - Tests: Vitest.
+  - Bundle: ncc.
+  - HuJSON handling uses @jaxxstorm/hujsonkit and must preserve compatibility
+    with Tailscale's Go HuJSON formatting for ETag calculations.
+
+  Design goals:
+  - Be faster than the Go-based upstream action in GitHub Actions.
+  - Preserve or improve compatibility with upstream behavior.
+  - Keep implementation small, deterministic, and easy to audit.
+  - Prefer focused regression tests for API compatibility and ETag behavior.
+
+rules:
+  proposal:
+    - State whether the change preserves backwards compatibility with tailscale/gitops-acl-action.
+    - Call out any effect on auth modes, policy validation, apply behavior, cache files, or ETag handling.
+    - Include non-goals for broad or compatibility-sensitive changes.
+  spec:
+    - Use MUST/SHOULD/MAY language for externally visible behavior.
+    - Include compatibility requirements when behavior overlaps with tailscale/gitops-acl-action.
+    - Include failure behavior for invalid credentials, invalid policy files, API errors, and ETag mismatches.
+  tasks:
+    - Include tests for any change touching auth, HuJSON formatting, ETag calculation, cache behavior, or Tailscale API calls.
+    - Include a build step when TypeScript source or dependencies change so dist/ remains current.
+    - Keep tasks scoped to changes that can be reviewed independently.
