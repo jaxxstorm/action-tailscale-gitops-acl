@@ -27536,8 +27536,8 @@ function minimize(input) {
     return standardize(input);
 }
 function format(input, options = {}) {
-    const indent = typeof options.indent === "number" ? " ".repeat(options.indent) : (options.indent ?? "  ");
-    return JSON.stringify(toJsonValue(asValue(input)), null, indent);
+    const indent = typeof options.indent === "number" ? " ".repeat(options.indent) : (options.indent ?? "\t");
+    return formatRoot(asValue(input), indent);
 }
 function patch(input, operations) {
     let current = deepCloneJson(toJsonValue(asValue(input)));
@@ -27554,6 +27554,233 @@ function literal(raw) {
 }
 function childLiteral(raw) {
     return { kind: "literal", before: "", after: null, raw };
+}
+function formatRoot(value, indent) {
+    return `${formatTrimmed(value, 0, indent, !isStandard(value))}\n`;
+}
+function formatTrimmed(value, depth, indent, allowTrailingCommas) {
+    switch (value.kind) {
+        case "literal":
+            return formatLiteral(value);
+        case "array":
+            return formatArray(value, depth, indent, allowTrailingCommas);
+        case "object":
+            return formatObject(value, depth, indent, allowTrailingCommas);
+    }
+}
+function formatLiteral(value) {
+    if (value.raw.startsWith('"') && value.raw.includes("\\")) {
+        return JSON.stringify(JSON.parse(value.raw));
+    }
+    return value.raw;
+}
+function formatArray(value, depth, indent, allowTrailingCommas) {
+    if (value.elements.length === 0) {
+        const extra = formatExtraInline(value.afterExtra);
+        return extra ? `[${extra}]` : "[]";
+    }
+    if (!shouldExpandArray(value, depth, indent, allowTrailingCommas)) {
+        return `[${value.elements.map((element, index) => formatInlineArrayElement(element, index, depth, indent, allowTrailingCommas)).join(",")}]`;
+    }
+    const childDepth = depth + 1;
+    const lines = value.elements.map((element, index) => {
+        const comma = allowTrailingCommas || index < value.elements.length - 1 ? "," : "";
+        const prefix = formatExtraBeforeExpanded(element.before, childDepth, indent, index === 0);
+        const afterValue = formatExtraInline(element.after);
+        return `${prefix.text}${formatTrimmed(element, childDepth, indent, allowTrailingCommas)}${afterValue}${comma}`;
+    });
+    return `[${lines.join("")}\n${repeatIndent(indent, depth)}]`;
+}
+function formatObject(value, depth, indent, allowTrailingCommas) {
+    if (value.members.length === 0) {
+        const extra = formatExtraInline(value.afterExtra);
+        return extra ? `{${extra}}` : "{}";
+    }
+    if (!shouldExpandObject(value, depth, indent, allowTrailingCommas)) {
+        return `{${value.members.map((member, index) => formatInlineMember(member, index, depth, indent, allowTrailingCommas)).join(",")}}`;
+    }
+    const childDepth = depth + 1;
+    const rows = value.members.map((member, index) => {
+        const formattedValue = formatTrimmed(member.value, childDepth, indent, allowTrailingCommas);
+        const multiline = formattedValue.includes("\n");
+        const prefix = formatExtraBeforeExpanded(member.name.before, childDepth, indent, index === 0);
+        return {
+            index,
+            member,
+            formattedValue,
+            multiline,
+            prefix,
+            name: formatLiteral(member.name)
+        };
+    });
+    const valueSpaces = new Map();
+    let group = [];
+    const flushGroup = () => {
+        if (group.length === 0) {
+            return;
+        }
+        const alignable = group.filter((row) => !row.multiline && !hasComment(row.member.name.after) && !hasComment(row.member.value.before));
+        if (alignable.length > 1) {
+            const width = Math.max(...alignable.map((row) => row.name.length));
+            for (const row of alignable) {
+                valueSpaces.set(row.index, " ".repeat(width - row.name.length + 1));
+            }
+        }
+        group = [];
+    };
+    for (const row of rows) {
+        if (row.prefix.commentCount > 0 || row.multiline) {
+            flushGroup();
+            if (!row.multiline) {
+                group.push(row);
+            }
+            flushGroup();
+            continue;
+        }
+        group.push(row);
+    }
+    flushGroup();
+    const lines = rows.map((row) => {
+        const comma = allowTrailingCommas || row.index < rows.length - 1 ? "," : "";
+        const beforeColon = formatExtraInline(row.member.name.after);
+        const afterColon = formatExtraInline(row.member.value.before);
+        const separator = beforeColon || afterColon
+            ? `${beforeColon || ""}:${afterColon || " "}`
+            : `:${valueSpaces.get(row.index) ?? " "}`;
+        const afterValue = formatExtraInline(row.member.value.after);
+        return `${row.prefix.text}${row.name}${separator}${row.formattedValue}${afterValue}${comma}`;
+    });
+    return `{${lines.join("")}\n${repeatIndent(indent, depth)}}`;
+}
+function formatInlineArrayElement(element, index, depth, indent, allowTrailingCommas) {
+    const before = formatExtraInline(element.before) || (index === 0 ? "" : " ");
+    const after = formatExtraInline(element.after);
+    return `${before}${formatTrimmed(element, depth, indent, allowTrailingCommas)}${after}`;
+}
+function formatInlineMember(member, index, depth, indent, allowTrailingCommas) {
+    const beforeName = formatExtraInline(member.name.before) || (index === 0 ? "" : " ");
+    const beforeColon = formatExtraInline(member.name.after);
+    const afterColon = formatExtraInline(member.value.before);
+    const separator = beforeColon || afterColon ? `${beforeColon || ""}:${afterColon || " "}` : ": ";
+    const afterValue = formatExtraInline(member.value.after);
+    return `${beforeName}${formatLiteral(member.name)}${separator}${formatTrimmed(member.value, depth, indent, allowTrailingCommas)}${afterValue}`;
+}
+function shouldExpandArray(value, depth, indent, allowTrailingCommas) {
+    if (value.afterExtra.includes("\n") || value.elements.some((element) => element.before.includes("\n") || (element.after ?? "").includes("\n"))) {
+        return true;
+    }
+    const inline = `[${value.elements.map((element, index) => formatInlineArrayElement(element, index, depth, indent, allowTrailingCommas)).join(",")}]`;
+    return lineLength(inline) > 80;
+}
+function shouldExpandObject(value, depth, indent, allowTrailingCommas) {
+    if (value.afterExtra.includes("\n") ||
+        value.members.some((member) => member.name.before.includes("\n") ||
+            (member.name.after ?? "").includes("\n") ||
+            member.value.before.includes("\n") ||
+            (member.value.after ?? "").includes("\n"))) {
+        return true;
+    }
+    const inline = `{${value.members.map((member, index) => formatInlineMember(member, index, depth, indent, allowTrailingCommas)).join(",")}}`;
+    return lineLength(inline) > 80;
+}
+function formatExtraInline(extra) {
+    if (!extra) {
+        return "";
+    }
+    const comments = extractComments(normalizeEndlines(extra)).map((comment) => comment.trimEnd());
+    return comments.length > 0 ? ` ${comments.join(" ")} ` : "";
+}
+function formatExtraBeforeExpanded(extra, depth, indent, first) {
+    const normalized = normalizeEndlines(extra);
+    const comments = extractComments(normalized).map((comment) => comment.trimEnd());
+    const newlineCount = countNewlines(normalized);
+    const blankLine = !first && (comments.length === 0 ? newlineCount > 1 : newlineCount > comments.length + 1);
+    let text = blankLine ? "\n\n" : "\n";
+    for (const comment of comments) {
+        text += `${repeatIndent(indent, depth)}${formatComment(comment, depth, indent)}\n`;
+    }
+    text += repeatIndent(indent, depth);
+    return { text, commentCount: comments.length };
+}
+function countNewlines(value) {
+    let count = 0;
+    for (const char of value) {
+        if (char === "\n") {
+            count += 1;
+        }
+    }
+    return count;
+}
+function formatComment(comment, depth, indent) {
+    if (!comment.includes("\n")) {
+        return comment.trimEnd();
+    }
+    const lines = comment.split("\n").map((line) => line.trimEnd());
+    return lines
+        .map((line, index) => (index === 0 ? line : `${repeatIndent(indent, depth)}${line.trimStart()}`))
+        .join("\n");
+}
+function extractComments(extra) {
+    const comments = [];
+    for (let index = 0; index < extra.length;) {
+        if (extra.startsWith("//", index)) {
+            const end = extra.indexOf("\n", index);
+            if (end === -1) {
+                comments.push(extra.slice(index));
+                break;
+            }
+            comments.push(extra.slice(index, end));
+            index = end + 1;
+            continue;
+        }
+        if (extra.startsWith("/*", index)) {
+            const end = extra.indexOf("*/", index + 2);
+            if (end === -1) {
+                comments.push(extra.slice(index));
+                break;
+            }
+            comments.push(extra.slice(index, end + 2));
+            index = end + 2;
+            continue;
+        }
+        index += 1;
+    }
+    return comments;
+}
+function normalizeEndlines(value) {
+    return value.replace(/\r\n/g, "\n").replace(/\n\r/g, "\n").replace(/\r/g, " ");
+}
+function repeatIndent(indent, depth) {
+    return indent.repeat(Math.max(0, depth));
+}
+function lineLength(value) {
+    const lines = value.split("\n");
+    return lines[lines.length - 1].length;
+}
+function hasComment(extra) {
+    return !!extra && (extra.includes("//") || extra.includes("/*"));
+}
+function isStandard(value) {
+    if (hasComment(value.before) || hasComment(value.after)) {
+        return false;
+    }
+    switch (value.kind) {
+        case "literal":
+            return true;
+        case "array":
+            if (hasComment(value.afterExtra) || hasTrailingComma(value.elements)) {
+                return false;
+            }
+            return value.elements.every(isStandard);
+        case "object":
+            if (hasComment(value.afterExtra) || hasTrailingComma(value.members.map((member) => member.value))) {
+                return false;
+            }
+            return value.members.every((member) => !hasComment(member.name.before) && !hasComment(member.name.after) && isStandard(member.value));
+    }
+}
+function hasTrailingComma(values) {
+    return values.length > 0 && values[values.length - 1].after !== null;
 }
 function packValue(value, includeAfter) {
     const body = value.before + packTrimmed(value);
