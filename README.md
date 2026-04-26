@@ -177,3 +177,19 @@ Both integration jobs always run. Missing or invalid credentials fail the
 workflow, which keeps credential drift visible in CI.
 The jobs run in series, and the workflow has a concurrency group so separate
 integration runs do not update the ACL at the same time.
+
+## Benchmark setup
+
+The repository also includes `.github/workflows/benchmark.yml`, a manual
+`workflow_dispatch` workflow that compares the runtime of this local checked-in
+action against `tailscale/gitops-acl-action@v1`. It runs both actions in
+`test` mode against `test/fixtures/policy.hujson` and writes a comparison table
+to the workflow run summary.
+
+To run the benchmark, add these GitHub Actions secrets:
+
+- `TS_API_KEY`: a Tailscale API key with access to validate the policy file.
+- `TS_TAILNET`: the dedicated test tailnet name.
+
+The benchmark workflow has its own concurrency group, so benchmark runs queue
+instead of overlapping.

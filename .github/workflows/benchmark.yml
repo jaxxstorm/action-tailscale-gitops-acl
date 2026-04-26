@@ -1,0 +1,102 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tailscale-acl-benchmark
+  cancel-in-progress: false
+
+env:
+  TS_POLICY_FILE: test/fixtures/policy.hujson
+
+jobs:
+  compare:
+    name: Compare action runtime
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Reset local action cache
+        run: rm -f version-cache.json
+
+      - name: Start local action timer
+        id: local_start
+        run: echo "started_at=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+
+      - name: Test ACL with local action
+        uses: ./
+        with:
+          api-key: ${{ secrets.TS_API_KEY }}
+          tailnet: ${{ secrets.TS_TAILNET }}
+          policy-file: ${{ env.TS_POLICY_FILE }}
+          action: test
+
+      - name: Stop local action timer
+        id: local
+        run: |
+          ended_at=$(date +%s%3N)
+          started_at="${{ steps.local_start.outputs.started_at }}"
+          echo "duration_ms=$((ended_at - started_at))" >> "$GITHUB_OUTPUT"
+
+      - name: Reset upstream action cache
+        run: rm -f version-cache.json
+
+      - name: Start upstream action timer
+        id: upstream_start
+        run: echo "started_at=$(date +%s%3N)" >> "$GITHUB_OUTPUT"
+
+      - name: Test ACL with upstream action
+        uses: tailscale/gitops-acl-action@v1
+        with:
+          api-key: ${{ secrets.TS_API_KEY }}
+          tailnet: ${{ secrets.TS_TAILNET }}
+          policy-file: ${{ env.TS_POLICY_FILE }}
+          action: test
+
+      - name: Stop upstream action timer
+        id: upstream
+        run: |
+          ended_at=$(date +%s%3N)
+          started_at="${{ steps.upstream_start.outputs.started_at }}"
+          echo "duration_ms=$((ended_at - started_at))" >> "$GITHUB_OUTPUT"
+
+      - name: Publish benchmark summary
+        run: |
+          local_ms="${{ steps.local.outputs.duration_ms }}"
+          upstream_ms="${{ steps.upstream.outputs.duration_ms }}"
+          delta_ms=$((upstream_ms - local_ms))
+
+          if [ "$delta_ms" -gt 0 ]; then
+            result="Local action was ${delta_ms} ms faster."
+          elif [ "$delta_ms" -lt 0 ]; then
+            result="Upstream action was $((-delta_ms)) ms faster."
+          else
+            result="Both actions took the same measured time."
+          fi
+
+          percent=$(awk -v local="$local_ms" -v upstream="$upstream_ms" 'BEGIN {
+            if (upstream == 0) {
+              print "n/a"
+            } else {
+              printf "%.1f%%", ((upstream - local) / upstream) * 100
+            }
+          }')
+
+          {
+            echo "## Tailscale ACL action benchmark"
+            echo
+            echo "| Action | Ref | Mode | Duration |"
+            echo "| --- | --- | --- | ---: |"
+            echo "| Local action | \`./\` | \`test\` | ${local_ms} ms |"
+            echo "| Upstream action | \`tailscale/gitops-acl-action@v1\` | \`test\` | ${upstream_ms} ms |"
+            echo
+            echo "$result"
+            echo
+            echo "Relative improvement versus upstream: ${percent}"
+          } >> "$GITHUB_STEP_SUMMARY"
