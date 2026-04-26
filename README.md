@@ -136,15 +136,18 @@ need to install dependencies at runtime.
 ## Integration test setup
 
 The repository includes `.github/workflows/integration.yml`, which exercises the
-local action with Tailscale OIDC federated identity credentials. It runs
-`action: test` for pull requests and `action: apply` for pushes to `main`. You
-can also run it manually with `workflow_dispatch` and choose either mode.
+local action with both Tailscale OIDC federated identity credentials and
+Tailscale OAuth client credentials. The OIDC job runs `action: test` for pull
+requests and `action: apply` for pushes to `main`. The OAuth credentials job
+always runs `action: test`, so it verifies the client credentials exchange
+without writing the tailnet policy. You can also run the workflow manually with
+`workflow_dispatch` and choose the OIDC mode.
 
 The workflow uses `test/fixtures/policy.hujson`. Configure it against a
 dedicated test tailnet, because the `apply` path updates that tailnet's policy
 file.
 
-To enable the workflow:
+To enable the OIDC job:
 
 1. In Tailscale, create a federated identity for this GitHub repository with the
    `policy_file` scope.
@@ -152,12 +155,23 @@ To enable the workflow:
    Actions OIDC tokens. For pull request and push coverage, allow the repository
    and branch/event subjects you expect to run.
 3. Add these GitHub Actions secrets to the repository:
-   - `TS_OAUTH_ID`: the federated identity client ID.
-   - `TS_AUDIENCE`: the federated identity audience.
+   - `TS_OIDC_CLIENT_ID`: the federated identity client ID.
+   - `TS_OIDC_AUDIENCE`: the federated identity audience.
    - `TS_TAILNET`: the dedicated test tailnet name.
 4. Run the `Integration` workflow manually in `test` mode first.
 5. After the test mode passes, run it manually in `apply` mode or merge a change
    to `main` to verify the apply path.
 
-If any of the three secrets are missing, the workflow reports a skipped
-integration test and exits successfully.
+To enable the OAuth credentials job:
+
+1. In Tailscale, create an OAuth client for the same dedicated test tailnet with
+   the `policy_file` scope.
+2. Add these GitHub Actions secrets to the repository:
+   - `TS_OAUTH_CLIENT_ID`: the OAuth client ID.
+   - `TS_OAUTH_SECRET`: the OAuth client secret.
+   - `TS_TAILNET`: the dedicated test tailnet name.
+3. Run the `Integration` workflow. The `OAuth credentials test` job should run
+   independently of the OIDC job.
+
+Both integration jobs always run. Missing or invalid credentials fail the
+workflow, which keeps credential drift visible in CI.

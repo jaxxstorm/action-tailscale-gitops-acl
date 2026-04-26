@@ -21,7 +21,6 @@ permissions:
   id-token: write
 
 env:
-  TS_INTEGRATION_ENABLED: ${{ secrets.TS_OAUTH_ID != '' && secrets.TS_AUDIENCE != '' && secrets.TS_TAILNET != '' }}
   TS_POLICY_FILE: test/fixtures/policy.hujson
 
 jobs:
@@ -30,64 +29,82 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Skip integration test
-        if: env.TS_INTEGRATION_ENABLED != 'true'
-        run: echo "Skipping because TS_OAUTH_ID, TS_AUDIENCE, and TS_TAILNET are not configured."
-
       - name: Checkout
-        if: env.TS_INTEGRATION_ENABLED == 'true'
         uses: actions/checkout@v6
 
       - name: Set up Node
-        if: env.TS_INTEGRATION_ENABLED == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
 
       - name: Install dependencies
-        if: env.TS_INTEGRATION_ENABLED == 'true'
         run: npm ci
 
       - name: Build local action
-        if: env.TS_INTEGRATION_ENABLED == 'true'
         run: npm run build
 
       - name: Fetch version-cache.json
-        if: env.TS_INTEGRATION_ENABLED == 'true'
         uses: actions/cache@v5
         with:
           path: ./version-cache.json
-          key: version-cache.json-${{ github.run_id }}
+          key: version-cache.json-oidc-${{ github.run_id }}
           restore-keys: |
-            version-cache.json-
+            version-cache.json-oidc-
 
       - name: Test ACL with OIDC
         if: |
-          env.TS_INTEGRATION_ENABLED == 'true' &&
           (
             github.event_name == 'pull_request' ||
             (github.event_name == 'workflow_dispatch' && inputs.action == 'test')
           )
         uses: ./
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
-          audience: ${{ secrets.TS_AUDIENCE }}
+          oauth-client-id: ${{ secrets.TS_OIDC_CLIENT_ID }}
+          audience: ${{ secrets.TS_OIDC_AUDIENCE }}
           tailnet: ${{ secrets.TS_TAILNET }}
           policy-file: ${{ env.TS_POLICY_FILE }}
           action: test
 
       - name: Apply ACL with OIDC
         if: |
-          env.TS_INTEGRATION_ENABLED == 'true' &&
           (
             github.event_name == 'push' ||
             (github.event_name == 'workflow_dispatch' && inputs.action == 'apply')
           )
         uses: ./
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
-          audience: ${{ secrets.TS_AUDIENCE }}
+          oauth-client-id: ${{ secrets.TS_OIDC_CLIENT_ID }}
+          audience: ${{ secrets.TS_OIDC_AUDIENCE }}
           tailnet: ${{ secrets.TS_TAILNET }}
           policy-file: ${{ env.TS_POLICY_FILE }}
           action: apply
+
+  oauth-credentials:
+    name: OAuth credentials test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build local action
+        run: npm run build
+
+      - name: Test ACL with OAuth credentials
+        uses: ./
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tailnet: ${{ secrets.TS_TAILNET }}
+          policy-file: ${{ env.TS_POLICY_FILE }}
+          action: test
