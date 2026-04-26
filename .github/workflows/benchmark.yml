@@ -32,7 +32,8 @@ jobs:
       - name: Test ACL with local action
         uses: ./
         with:
-          api-key: ${{ secrets.TS_API_KEY }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tailnet: ${{ secrets.TS_TAILNET }}
           policy-file: ${{ env.TS_POLICY_FILE }}
           action: test
@@ -54,7 +55,8 @@ jobs:
       - name: Test ACL with upstream action
         uses: tailscale/gitops-acl-action@v1
         with:
-          api-key: ${{ secrets.TS_API_KEY }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tailnet: ${{ secrets.TS_TAILNET }}
           policy-file: ${{ env.TS_POLICY_FILE }}
           action: test

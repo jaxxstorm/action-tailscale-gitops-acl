@@ -188,7 +188,9 @@ to the workflow run summary.
 
 To run the benchmark, add these GitHub Actions secrets:
 
-- `TS_API_KEY`: a Tailscale API key with access to validate the policy file.
+- `TS_OAUTH_CLIENT_ID`: a Tailscale OAuth client ID with the `policy_file`
+  scope.
+- `TS_OAUTH_SECRET`: the Tailscale OAuth client secret.
 - `TS_TAILNET`: the dedicated test tailnet name.
 
 The benchmark workflow has its own concurrency group, so benchmark runs queue
