@@ -58,5 +58,7 @@ export function formatACLGitopsTestError(body: ACLGitopsTestErrorBody, policyFil
 }
 
 export function modifiedExternallyWarning(policyFile: string): string {
-  return `::warning file=${policyFile},line=1,col=1,title=Policy File Modified Externally::The policy file was modified externally in the admin console.`;
+  return `::warning file=${policyFile},line=1,col=1,title=Policy File Modified Externally::${modifiedExternallyWarningMessage}`;
 }
+
+export const modifiedExternallyWarningMessage = "The policy file was modified externally in the admin console.";

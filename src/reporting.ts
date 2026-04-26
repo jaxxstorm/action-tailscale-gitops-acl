@@ -17,6 +17,7 @@ export interface RunReport {
   readonly cacheEtag?: string;
   readonly diff?: PolicyDiff;
   readonly message?: string;
+  readonly warnings?: readonly string[];
 }
 
 interface PullRequestContext {
@@ -89,6 +90,9 @@ function renderSummary(report: RunReport): string {
   if (report.message) {
     lines.push("", report.message);
   }
+  if (report.warnings && report.warnings.length > 0) {
+    lines.push("", "### Warnings", "", ...report.warnings.map((warning) => `- ${warning}`));
+  }
 
   if (report.diff) {
     lines.push("", "### Policy Diff", "", fencedDiff(report.diff));
@@ -107,6 +111,10 @@ function renderPullRequestComment(report: RunReport): string {
     `Policy file: ${report.policyFile}`,
     "",
   ];
+
+  if (report.warnings && report.warnings.length > 0) {
+    lines.push("### Warnings", "", ...report.warnings.map((warning) => `- ${warning}`), "");
+  }
 
   if (report.diff) {
     lines.push("### Policy Diff", "", fencedDiff(report.diff));

@@ -138,6 +138,9 @@ describe("run", () => {
       await run();
 
       expect(core.info).toHaveBeenCalledWith(expect.stringContaining("Policy File Modified Externally"));
+      expect(core.summary.addRaw).toHaveBeenCalledWith(
+        expect.stringContaining("The policy file was modified externally in the admin console."),
+      );
     });
   });
 
