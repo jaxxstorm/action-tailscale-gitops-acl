@@ -1,0 +1,22 @@
+{
+  "name": "action-tailscale-gitops-acl",
+  "version": "0.0.1",
+  "private": true,
+  "description": "GitHub Action to sync Tailscale ACLs",
+  "type": "module",
+  "scripts": {
+    "build": "tsc && ncc build lib/index.js -o dist --source-map",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@actions/core": "^1.11.1",
+    "@jaxxstorm/hujsonkit": "^0.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@vercel/ncc": "^0.38.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}
