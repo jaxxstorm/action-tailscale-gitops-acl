@@ -25,9 +25,6 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Check Go ETag compatibility
-        run: npm test -- --run src/hujson/index.test.ts
-
       - name: Build
         run: npm run build
 

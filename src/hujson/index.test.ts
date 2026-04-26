@@ -31,7 +31,8 @@ describe("hujson compatibility helpers", () => {
   });
 
   it("matches the Go gitops-pusher ETag for the integration fixture", async () => {
-    const input = await readFile("test/fixtures/policy.hujson", "utf8");
+    const fixtureUrl = new URL("../../test/fixtures/policy.hujson", import.meta.url);
+    const input = await readFile(fixtureUrl, "utf8");
     expect(hashFormattedHuJSON(input)).toBe("bb56d706b5246ba38a8427768948eca9cc116158badc0c216282fd2f19f5af29");
   });
 
