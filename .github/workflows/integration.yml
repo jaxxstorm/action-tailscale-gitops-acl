@@ -123,7 +123,6 @@ jobs:
     needs: oauth-credentials
     if: ${{ always() && github.event_name != 'pull_request' }}
     env:
-      TS_API_KEY: ${{ secrets.TS_API_KEY }}
       TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
       TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
       TS_TAILNET: ${{ secrets.TS_TAILNET }}
@@ -147,7 +146,7 @@ jobs:
       - name: Check manual drift credentials
         run: |
           missing=0
-          for name in TS_API_KEY TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET TS_TAILNET; do
+          for name in TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET TS_TAILNET; do
             if [ -z "${!name}" ]; then
               echo "::error::${name} is required for the manual ACL drift integration scenario"
               missing=1
@@ -171,19 +170,29 @@ jobs:
         run: |
           set -euo pipefail
 
-          auth="$(printf '%s:' "$TS_API_KEY" | base64 | tr -d '\n')"
+          token_response="$(curl -fsS -u "${TS_OAUTH_CLIENT_ID}:${TS_OAUTH_SECRET}" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials" \
+            "https://api.tailscale.com/api/v2/oauth/token")"
+          token="$(node -e 'const fs = require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(0, "utf8")).access_token || "")' <<< "$token_response")"
+          if [ -z "$token" ]; then
+            echo "::error::OAuth token exchange did not return an access token"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+
           tailnet="$(node -e 'process.stdout.write(encodeURIComponent(process.env.TS_TAILNET || ""))')"
           url="https://api.tailscale.com/api/v2/tailnet/${tailnet}/acl"
           headers="$(mktemp)"
 
           curl -fsS -D "$headers" -o /tmp/current-policy.hujson \
             -H "Accept: application/hujson" \
-            -H "Authorization: Basic ${auth}" \
+            -u "${token}:" \
             "$url"
           etag="$(awk 'BEGIN { IGNORECASE=1 } /^etag:/ { gsub("\r", "", $2); gsub("\"", "", $2); print $2 }' "$headers" | tail -n 1)"
 
           curl -fsS -X POST \
-            -H "Authorization: Basic ${auth}" \
+            -u "${token}:" \
             -H "Content-Type: application/hujson" \
             -H "If-Match: \"${etag}\"" \
             --data-binary "@${TS_MANUAL_DRIFT_POLICY_FILE}" \
@@ -203,24 +212,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${TS_API_KEY}" ] || [ -z "${TS_TAILNET}" ]; then
-            echo "Skipping baseline restore because Tailscale API credentials are unavailable."
+          if [ -z "${TS_OAUTH_CLIENT_ID}" ] || [ -z "${TS_OAUTH_SECRET}" ] || [ -z "${TS_TAILNET}" ]; then
+            echo "Skipping baseline restore because Tailscale OAuth credentials are unavailable."
             exit 0
           fi
 
-          auth="$(printf '%s:' "$TS_API_KEY" | base64 | tr -d '\n')"
+          token_response="$(curl -fsS -u "${TS_OAUTH_CLIENT_ID}:${TS_OAUTH_SECRET}" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials" \
+            "https://api.tailscale.com/api/v2/oauth/token")"
+          token="$(node -e 'const fs = require("node:fs"); process.stdout.write(JSON.parse(fs.readFileSync(0, "utf8")).access_token || "")' <<< "$token_response")"
+          if [ -z "$token" ]; then
+            echo "::error::OAuth token exchange did not return an access token"
+            exit 1
+          fi
+          echo "::add-mask::$token"
+
           tailnet="$(node -e 'process.stdout.write(encodeURIComponent(process.env.TS_TAILNET || ""))')"
           url="https://api.tailscale.com/api/v2/tailnet/${tailnet}/acl"
           headers="$(mktemp)"
 
           curl -fsS -D "$headers" -o /tmp/current-policy.hujson \
             -H "Accept: application/hujson" \
-            -H "Authorization: Basic ${auth}" \
+            -u "${token}:" \
             "$url"
           etag="$(awk 'BEGIN { IGNORECASE=1 } /^etag:/ { gsub("\r", "", $2); gsub("\"", "", $2); print $2 }' "$headers" | tail -n 1)"
 
           curl -fsS -X POST \
-            -H "Authorization: Basic ${auth}" \
+            -u "${token}:" \
             -H "Content-Type: application/hujson" \
             -H "If-Match: \"${etag}\"" \
             --data-binary "@${TS_BASELINE_POLICY_FILE}" \

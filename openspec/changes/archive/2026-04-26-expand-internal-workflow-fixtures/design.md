@@ -10,13 +10,13 @@ The change is internal to this repository. It must preserve compatibility with `
 
 - Add multiple policy fixtures with clear scenario names so workflows can test no-op, changed-policy, and manual-drift paths.
 - Run the local action in pull request workflows with permissions sufficient to publish or update the action-owned PR report comment.
-- Add a workflow scenario that manually changes the test tailnet ACL with API-key credentials before running the action, making the modified-externally behavior visible in CI logs.
+- Add a workflow scenario that manually changes the test tailnet ACL with OAuth client credentials before running the action, making the modified-externally behavior visible in CI logs.
 - Keep live workflow behavior deterministic enough to debug by restoring or applying known fixture state where needed.
 
 **Non-Goals:**
 
 - Do not change runtime action behavior or public inputs.
-- Do not require API-key authentication for users; API keys are only used by this repository's internal drift setup step.
+- Do not require API-key authentication for users; the internal drift setup uses the same OAuth client credentials already required for integration coverage.
 - Do not replace Vitest coverage or remove existing OIDC/OAuth workflow coverage.
 - Do not introduce new runtime dependencies.
 
@@ -42,5 +42,5 @@ The change is internal to this repository. It must preserve compatibility with `
 
 - [Risk] Live ACL workflow steps can leave the test tailnet in an unexpected state if a run is cancelled. -> Mitigation: use a dedicated internal fixture and include cleanup or restore steps guarded with `always()` where practical.
 - [Risk] PR comments from internal workflow tests can be noisy. -> Mitigation: rely on the action-owned marker so repeated runs update one comment instead of creating duplicates.
-- [Risk] API-key secrets increase workflow sensitivity. -> Mitigation: keep API-key use limited to internal drift setup, continue to exercise OIDC/OAuth auth modes for the action itself, and avoid printing secret values.
+- [Risk] OAuth access tokens exchanged during workflow steps increase log sensitivity. -> Mitigation: mask exchanged tokens immediately, continue to exercise OIDC/OAuth auth modes for the action itself, and avoid printing secret values.
 - [Risk] Multiple live scenarios can contend for one tailnet. -> Mitigation: keep concurrency serialization for integration runs and use fixture names that make state transitions explicit.

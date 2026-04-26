@@ -27,7 +27,7 @@ The repository SHALL include an internal workflow scenario that modifies the tes
 
 #### Scenario: Manual drift is created through the Tailscale API
 - **WHEN** the manual-drift workflow scenario runs
-- **THEN** it updates the test tailnet ACL directly through the Tailscale API using internal API-key credentials before invoking the local action
+- **THEN** it updates the test tailnet ACL directly through the Tailscale API using internal OAuth client credentials before invoking the local action
 
 #### Scenario: Modified-externally behavior is visible
 - **WHEN** the action runs after the manual Tailscale API update and the cached ETag differs from the current control ETag

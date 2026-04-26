@@ -6,7 +6,7 @@ The repository's internal GitHub Actions coverage currently exercises the action
 
 - Add internal workflow coverage that runs the local action in pull request contexts and verifies PR reporting behavior with GitHub token permissions.
 - Expand policy fixtures from a single `test/fixtures/policy.hujson` file to multiple named fixtures that exercise no-op, changed-policy, and externally modified ACL scenarios.
-- Add an internal workflow path that manually modifies the test tailnet ACL through the Tailscale API using workflow API-key credentials, then runs the action to demonstrate and verify the modified-externally warning path.
+- Add an internal workflow path that manually modifies the test tailnet ACL through the Tailscale API using workflow OAuth client credentials, then runs the action to demonstrate and verify the modified-externally warning path.
 - Preserve backwards compatibility with `tailscale/gitops-acl-action`; this change only affects repository-owned workflows, fixtures, and test coverage.
 - Do not change action inputs, auth modes, policy validation behavior, apply behavior, cache file format, local ETag calculation, or Tailscale API semantics.
 - Non-goals: replacing unit tests with live workflows, changing release workflows, changing production user workflow recommendations, or requiring API-key auth for users who use OAuth or OIDC.
@@ -22,6 +22,6 @@ The repository's internal GitHub Actions coverage currently exercises the action
 ## Impact
 
 - Affected files include `.github/workflows/*`, `test/fixtures/**`, and OpenSpec artifacts.
-- Internal GitHub Actions will require the existing Tailscale secrets plus API-key credentials for the manual-drift scenario.
+- Internal GitHub Actions will use the existing Tailscale OAuth client credentials for the manual-drift scenario.
 - No runtime dependency changes are expected.
 - The change should not affect external users unless they opt into copying these internal workflow patterns.

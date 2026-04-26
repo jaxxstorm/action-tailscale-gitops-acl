@@ -13,7 +13,7 @@
 ## 3. Integration Workflow Drift Scenario
 
 - [x] 3.1 Add a workflow step that applies a known baseline fixture to the test tailnet before drift setup.
-- [x] 3.2 Add a workflow step that manually modifies the test tailnet ACL through the Tailscale API using internal API-key credentials.
+- [x] 3.2 Add a workflow step that manually modifies the test tailnet ACL through the Tailscale API using internal OAuth client credentials.
 - [x] 3.3 Run the local action after the manual API update with a cache state that exposes the modified-externally warning path.
 - [x] 3.4 Add an `always()` cleanup or restore step that attempts to put the test tailnet back to the expected fixture state.
 

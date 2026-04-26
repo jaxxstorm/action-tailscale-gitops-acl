@@ -195,16 +195,12 @@ To enable the OAuth credentials job:
 3. Run the `Integration` workflow. The `OAuth credentials test` job should run
    independently of the OIDC job.
 
-To enable the manual ACL drift scenario:
-
-1. Create or reuse an API key for the same dedicated test tailnet with the
-   `policy_file` scope.
-2. Add `TS_API_KEY` to the repository's GitHub Actions secrets.
-3. Run the `Integration` workflow from `main` or with `workflow_dispatch`. The
-   drift job applies the baseline fixture with the local action, modifies the
-   remote ACL directly through the Tailscale API with `policy-manual-drift.hujson`,
-   runs the local action again to surface the modified-externally warning, and
-   then attempts to restore the baseline fixture.
+The manual ACL drift scenario uses the same OAuth client credentials as the
+OAuth credentials job. Run the `Integration` workflow from `main` or with
+`workflow_dispatch`; the drift job applies the baseline fixture with the local
+action, modifies the remote ACL directly through the Tailscale API with
+`policy-manual-drift.hujson`, runs the local action again to surface the
+modified-externally warning, and then attempts to restore the baseline fixture.
 
 The OIDC and OAuth integration jobs always run. The manual drift job runs for
 push and manual workflow runs, but not for pull requests. Missing or invalid
