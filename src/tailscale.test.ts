@@ -9,8 +9,23 @@ describe("TailscaleClient", () => {
     vi.unstubAllGlobals();
   });
 
-  it("fetches and strips ACL ETags", async () => {
-    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 200, headers: { ETag: '"abc123"' } }));
+  it("fetches ACL policy content and strips ETags", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('{"acls":[]}\n', { status: 200, headers: { ETag: '"abc123"' } }));
+    await expect(new TailscaleClient("api.tailscale.com", "example.com", "tskey").getACL()).resolves.toEqual({
+      etag: "abc123",
+      policy: '{"acls":[]}\n',
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.tailscale.com/api/v2/tailnet/example.com/acl",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({ Accept: "application/hujson" }),
+      }),
+    );
+  });
+
+  it("preserves getACLETag compatibility", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response('{"acls":[]}\n', { status: 200, headers: { ETag: '"abc123"' } }));
     await expect(new TailscaleClient("api.tailscale.com", "example.com", "tskey").getACLETag()).resolves.toBe("abc123");
     expect(fetch).toHaveBeenCalledWith(
       "https://api.tailscale.com/api/v2/tailnet/example.com/acl",

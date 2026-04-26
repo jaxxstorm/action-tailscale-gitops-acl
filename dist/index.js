@@ -28412,6 +28412,89 @@ async function saveCache(cache, path = "./version-cache.json") {
     await external_node_fs_namespaceObject.promises.writeFile(path, `${JSON.stringify(cache)}\n`, "utf8");
 }
 
+;// CONCATENATED MODULE: ./lib/diff.js
+const defaultMaxLength = 60000;
+function createPolicyDiff(oldText, newText, options) {
+    if (oldText === newText) {
+        return {
+            hasChanges: false,
+            text: "No policy diff is present.",
+            truncated: false,
+        };
+    }
+    const maxLength = options.maxLength ?? defaultMaxLength;
+    const diff = [
+        `--- ${options.fromFile}`,
+        `+++ ${options.toFile}`,
+        ...diffLines(splitLines(oldText), splitLines(newText)),
+    ].join("\n");
+    if (diff.length <= maxLength) {
+        return {
+            hasChanges: true,
+            text: diff,
+            truncated: false,
+        };
+    }
+    const notice = "\n\n[Diff truncated because it exceeded the maximum report size.]";
+    return {
+        hasChanges: true,
+        text: `${diff.slice(0, Math.max(0, maxLength - notice.length))}${notice}`,
+        truncated: true,
+    };
+}
+function splitLines(text) {
+    if (text.length === 0) {
+        return [];
+    }
+    const lines = text.split("\n");
+    if (lines[lines.length - 1] === "") {
+        lines.pop();
+    }
+    return lines;
+}
+function diffLines(oldLines, newLines) {
+    const table = buildLcsTable(oldLines, newLines);
+    const output = [];
+    let oldIndex = 0;
+    let newIndex = 0;
+    while (oldIndex < oldLines.length && newIndex < newLines.length) {
+        if (oldLines[oldIndex] === newLines[newIndex]) {
+            output.push(` ${oldLines[oldIndex]}`);
+            oldIndex += 1;
+            newIndex += 1;
+        }
+        else if (table[oldIndex + 1][newIndex] >= table[oldIndex][newIndex + 1]) {
+            output.push(`-${oldLines[oldIndex]}`);
+            oldIndex += 1;
+        }
+        else {
+            output.push(`+${newLines[newIndex]}`);
+            newIndex += 1;
+        }
+    }
+    while (oldIndex < oldLines.length) {
+        output.push(`-${oldLines[oldIndex]}`);
+        oldIndex += 1;
+    }
+    while (newIndex < newLines.length) {
+        output.push(`+${newLines[newIndex]}`);
+        newIndex += 1;
+    }
+    return output;
+}
+function buildLcsTable(oldLines, newLines) {
+    const table = Array.from({ length: oldLines.length + 1 }, () => Array(newLines.length + 1).fill(0));
+    for (let oldIndex = oldLines.length - 1; oldIndex >= 0; oldIndex -= 1) {
+        for (let newIndex = newLines.length - 1; newIndex >= 0; newIndex -= 1) {
+            table[oldIndex][newIndex] =
+                oldLines[oldIndex] === newLines[newIndex]
+                    ? table[oldIndex + 1][newIndex + 1] + 1
+                    : Math.max(table[oldIndex + 1][newIndex], table[oldIndex][newIndex + 1]);
+        }
+    }
+    return table;
+}
+
 ;// CONCATENATED MODULE: ./lib/errors.js
 const lineColMessageSplit = /line ([0-9]+), column ([0-9]+): (.*)$/;
 class ACLGitopsTestError extends Error {
@@ -28476,6 +28559,157 @@ function hashFormattedHuJSON(input) {
     return (0,external_node_crypto_.createHash)("sha256").update(formatHuJSON(input)).digest("hex");
 }
 
+;// CONCATENATED MODULE: ./lib/reporting.js
+
+
+const commentMarker = "<!-- action-tailscale-gitops-acl:run-report -->";
+async function reportRun(report) {
+    await attempt("write action run summary", () => writeRunSummary(report));
+    await attempt("publish pull request report", () => publishPullRequestReport(report));
+}
+async function writeRunSummary(report) {
+    await core.summary.addRaw(renderSummary(report)).write();
+}
+async function publishPullRequestReport(report) {
+    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    if (!token) {
+        core.info("skipping pull request report: GITHUB_TOKEN is not available");
+        return;
+    }
+    const context = await getPullRequestContext();
+    if (!context) {
+        core.info("skipping pull request report: not running for a pull request");
+        return;
+    }
+    const body = renderPullRequestComment(report);
+    const existing = await findExistingComment(context, token);
+    if (existing !== undefined) {
+        await githubRequest(`https://api.github.com/repos/${context.owner}/${context.repo}/issues/comments/${existing}`, token, {
+            method: "PATCH",
+            body: JSON.stringify({ body }),
+        });
+        return;
+    }
+    await githubRequest(`https://api.github.com/repos/${context.owner}/${context.repo}/issues/${context.number}/comments`, token, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+    });
+}
+function renderSummary(report) {
+    const lines = [
+        "## Tailscale GitOps ACL",
+        "",
+        `- Result: ${describeOutcome(report)}`,
+        `- Mode: ${report.mode}`,
+        `- Tailnet: ${report.tailnet}`,
+        `- Policy file: ${report.policyFile}`,
+        `- Policy changed: ${report.policyChanged ? "yes" : "no"}`,
+    ];
+    if (report.controlEtag) {
+        lines.push(`- Control ETag: ${report.controlEtag}`);
+    }
+    if (report.localEtag) {
+        lines.push(`- Local ETag: ${report.localEtag}`);
+    }
+    if (report.cacheEtag) {
+        lines.push(`- Cache ETag: ${report.cacheEtag}`);
+    }
+    if (report.message) {
+        lines.push("", report.message);
+    }
+    if (report.diff) {
+        lines.push("", "### Policy Diff", "", fencedDiff(report.diff));
+    }
+    return `${lines.join("\n")}\n`;
+}
+function renderPullRequestComment(report) {
+    const lines = [
+        commentMarker,
+        "## Tailscale ACL policy report",
+        "",
+        `Result: ${describeOutcome(report)}`,
+        `Mode: ${report.mode}`,
+        `Policy file: ${report.policyFile}`,
+        "",
+    ];
+    if (report.diff) {
+        lines.push("### Policy Diff", "", fencedDiff(report.diff));
+    }
+    else {
+        lines.push("No policy diff is available for this run.");
+    }
+    return `${lines.join("\n")}\n`;
+}
+function fencedDiff(diff) {
+    if (!diff.hasChanges) {
+        return diff.text;
+    }
+    const truncation = diff.truncated ? "\n\nDiff was truncated because it exceeded the maximum report size." : "";
+    return `\`\`\`diff\n${diff.text}\n\`\`\`${truncation}`;
+}
+function describeOutcome(report) {
+    if (report.outcome === "validated") {
+        return "validation succeeded";
+    }
+    if (report.outcome === "applied") {
+        return "apply succeeded";
+    }
+    if (report.outcome === "no-op") {
+        return "no update needed";
+    }
+    return "failed";
+}
+async function attempt(description, fn) {
+    try {
+        await fn();
+    }
+    catch (error) {
+        core.info(`failed to ${description}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+async function getPullRequestContext() {
+    const eventName = process.env.GITHUB_EVENT_NAME;
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    const repository = process.env.GITHUB_REPOSITORY;
+    if (!eventName?.startsWith("pull_request") || !eventPath || !repository) {
+        return undefined;
+    }
+    const payload = JSON.parse(await external_node_fs_namespaceObject.promises.readFile(eventPath, "utf8"));
+    const number = payload.pull_request?.number ?? payload.number;
+    if (typeof number !== "number") {
+        return undefined;
+    }
+    const [owner, repo] = repository.split("/", 2);
+    if (!owner || !repo) {
+        return undefined;
+    }
+    return { owner, repo, number };
+}
+async function findExistingComment(context, token) {
+    const comments = (await githubRequest(`https://api.github.com/repos/${context.owner}/${context.repo}/issues/${context.number}/comments?per_page=100`, token, { method: "GET" }));
+    return comments.find((comment) => comment.body?.includes(commentMarker))?.id;
+}
+async function githubRequest(url, token, init) {
+    const resp = await fetch(url, {
+        ...init,
+        headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            ...init.headers,
+        },
+    });
+    if (!resp.ok) {
+        throw new Error(`GitHub API request failed with status ${resp.status}: ${await resp.text()}`);
+    }
+    if (resp.status === 204) {
+        return undefined;
+    }
+    const text = await resp.text();
+    return text ? JSON.parse(text) : undefined;
+}
+
 ;// CONCATENATED MODULE: ./lib/tailscale.js
 
 class TailscaleClient {
@@ -28489,7 +28723,7 @@ class TailscaleClient {
         this.baseURL = `https://${apiServer}/api/v2/tailnet/${encodeURIComponent(tailnet)}`;
         this.authHeader = `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}`;
     }
-    async getACLETag() {
+    async getACL() {
         const resp = await fetch(`${this.baseURL}/acl`, {
             method: "GET",
             headers: {
@@ -28501,7 +28735,13 @@ class TailscaleClient {
             const errorDetails = await resp.text();
             throw new Error(`wanted HTTP status code 200 but got ${resp.status}: ${JSON.stringify(errorDetails)}`);
         }
-        return shuck(resp.headers.get("etag") ?? "");
+        return {
+            etag: shuck(resp.headers.get("etag") ?? ""),
+            policy: await resp.text(),
+        };
+    }
+    async getACLETag() {
+        return (await this.getACL()).etag;
     }
     async applyACL(policyFile, policy, oldEtag) {
         const resp = await fetch(`${this.baseURL}/acl`, {
@@ -28554,6 +28794,8 @@ async function readJSONError(resp) {
 
 
 
+
+
 const defaultCacheFile = "./version-cache.json";
 const defaultAPIServer = "api.tailscale.com";
 async function run() {
@@ -28564,47 +28806,95 @@ async function run() {
     if (action !== "test" && action !== "apply") {
         throw new Error(`unknown action ${action}`);
     }
-    const credentials = await getCredentials({
-        apiKey: core.getInput("api-key"),
-        oauthClientId: core.getInput("oauth-client-id"),
-        oauthSecret: core.getInput("oauth-secret"),
-        audience: core.getInput("audience"),
-        apiServer,
-    });
-    const client = new TailscaleClient(apiServer, tailnet, credentials.apiKey);
-    const cache = await loadCache(defaultCacheFile);
-    const controlEtag = await client.getACLETag();
-    const policy = await external_node_fs_namespaceObject.promises.readFile(policyFile, "utf8");
-    const localEtag = hashFormattedHuJSON(policy);
-    if (cache.PrevETag === "") {
-        core.info("no previous etag found, assuming the latest control etag");
-        cache.PrevETag = controlEtag;
-    }
-    core.info(`control: ${controlEtag}`);
-    core.info(`local:   ${localEtag}`);
-    core.info(`cache:   ${cache.PrevETag}`);
-    if (controlEtag === localEtag) {
+    let report = {
+        mode: action,
+        tailnet,
+        policyFile,
+        outcome: "failed",
+        policyChanged: false,
+    };
+    try {
+        const credentials = await getCredentials({
+            apiKey: core.getInput("api-key"),
+            oauthClientId: core.getInput("oauth-client-id"),
+            oauthSecret: core.getInput("oauth-secret"),
+            audience: core.getInput("audience"),
+            apiServer,
+        });
+        const client = new TailscaleClient(apiServer, tailnet, credentials.apiKey);
+        const cache = await loadCache(defaultCacheFile);
+        const control = await client.getACL();
+        const controlEtag = control.etag;
+        const policy = await external_node_fs_namespaceObject.promises.readFile(policyFile, "utf8");
+        const localEtag = hashFormattedHuJSON(policy);
+        const diff = createPolicyDiff(control.policy, policy, {
+            fromFile: "tailscale-control-policy.hujson",
+            toFile: policyFile,
+        });
+        if (cache.PrevETag === "") {
+            core.info("no previous etag found, assuming the latest control etag");
+            cache.PrevETag = controlEtag;
+        }
+        report = {
+            ...report,
+            controlEtag,
+            localEtag,
+            cacheEtag: cache.PrevETag,
+            policyChanged: controlEtag !== localEtag,
+            diff,
+        };
+        core.info(`control: ${controlEtag}`);
+        core.info(`local:   ${localEtag}`);
+        core.info(`cache:   ${cache.PrevETag}`);
+        if (controlEtag === localEtag) {
+            report = {
+                ...report,
+                outcome: "no-op",
+                message: "No update needed; the local policy hash matches the current control ETag.",
+            };
+            if (action === "apply") {
+                cache.PrevETag = localEtag;
+                core.info("no update needed, doing nothing");
+            }
+            else {
+                core.info("no updates found, doing nothing");
+            }
+            await saveCache(cache, defaultCacheFile);
+            await reportRun(report);
+            return;
+        }
+        if (cache.PrevETag !== controlEtag) {
+            core.info(modifiedExternallyWarning(policyFile));
+        }
         if (action === "apply") {
+            await client.applyACL(policyFile, policy, controlEtag);
             cache.PrevETag = localEtag;
-            core.info("no update needed, doing nothing");
+            report = {
+                ...report,
+                outcome: "applied",
+                cacheEtag: cache.PrevETag,
+                message: "Policy update applied successfully.",
+            };
         }
         else {
-            core.info("no updates found, doing nothing");
+            await client.testACL(policyFile, standardizeHuJSON(policy));
+            report = {
+                ...report,
+                outcome: "validated",
+                message: "Policy validation succeeded.",
+            };
         }
         await saveCache(cache, defaultCacheFile);
-        return;
+        await reportRun(report);
     }
-    if (cache.PrevETag !== controlEtag) {
-        core.info(modifiedExternallyWarning(policyFile));
+    catch (error) {
+        await reportRun({
+            ...report,
+            outcome: "failed",
+            message: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
     }
-    if (action === "test") {
-        await client.testACL(policyFile, standardizeHuJSON(policy));
-    }
-    else {
-        await client.applyACL(policyFile, policy, controlEtag);
-        cache.PrevETag = localEtag;
-    }
-    await saveCache(cache, defaultCacheFile);
 }
 if (process.env.NODE_ENV !== "test") {
     run().catch((error) => {

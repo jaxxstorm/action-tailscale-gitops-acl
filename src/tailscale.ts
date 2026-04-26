@@ -1,5 +1,10 @@
 import { ACLGitopsTestError, ACLGitopsTestErrorBody } from "./errors.js";
 
+export interface ACLRead {
+  readonly etag: string;
+  readonly policy: string;
+}
+
 export class TailscaleClient {
   private readonly baseURL: string;
   private readonly authHeader: string;
@@ -13,7 +18,7 @@ export class TailscaleClient {
     this.authHeader = `Basic ${Buffer.from(`${apiKey}:`).toString("base64")}`;
   }
 
-  async getACLETag(): Promise<string> {
+  async getACL(): Promise<ACLRead> {
     const resp = await fetch(`${this.baseURL}/acl`, {
       method: "GET",
       headers: {
@@ -25,7 +30,14 @@ export class TailscaleClient {
       const errorDetails = await resp.text();
       throw new Error(`wanted HTTP status code 200 but got ${resp.status}: ${JSON.stringify(errorDetails)}`);
     }
-    return shuck(resp.headers.get("etag") ?? "");
+    return {
+      etag: shuck(resp.headers.get("etag") ?? ""),
+      policy: await resp.text(),
+    };
+  }
+
+  async getACLETag(): Promise<string> {
+    return (await this.getACL()).etag;
   }
 
   async applyACL(policyFile: string, policy: string, oldEtag: string): Promise<void> {
