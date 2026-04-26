@@ -28414,6 +28414,7 @@ async function saveCache(cache, path = "./version-cache.json") {
 
 ;// CONCATENATED MODULE: ./lib/diff.js
 const defaultMaxLength = 60000;
+const truncationNotice = "\n\nDiff was truncated because it exceeded the maximum report size.";
 function createPolicyDiff(oldText, newText, options) {
     if (oldText === newText) {
         return {
@@ -28423,23 +28424,30 @@ function createPolicyDiff(oldText, newText, options) {
         };
     }
     const maxLength = options.maxLength ?? defaultMaxLength;
-    const diff = [
-        `--- ${options.fromFile}`,
-        `+++ ${options.toFile}`,
-        ...diffLines(splitLines(oldText), splitLines(newText)),
-    ].join("\n");
-    if (diff.length <= maxLength) {
-        return {
-            hasChanges: true,
-            text: diff,
-            truncated: false,
-        };
+    const oldLines = splitLines(oldText);
+    const newLines = splitLines(newText);
+    const builder = new BoundedDiffBuilder(maxLength);
+    builder.addLine(`--- ${options.fromFile}`);
+    builder.addLine(`+++ ${options.toFile}`);
+    builder.addLine(`@@ -${rangeStart(oldLines)},${oldLines.length} +${rangeStart(newLines)},${newLines.length} @@`);
+    for (const line of oldLines) {
+        builder.addLine(`-${line}`);
+        if (builder.truncated) {
+            break;
+        }
     }
-    const notice = "\n\n[Diff truncated because it exceeded the maximum report size.]";
+    if (!builder.truncated) {
+        for (const line of newLines) {
+            builder.addLine(`+${line}`);
+            if (builder.truncated) {
+                break;
+            }
+        }
+    }
     return {
         hasChanges: true,
-        text: `${diff.slice(0, Math.max(0, maxLength - notice.length))}${notice}`,
-        truncated: true,
+        text: builder.text(),
+        truncated: builder.truncated,
     };
 }
 function splitLines(text) {
@@ -28452,47 +28460,41 @@ function splitLines(text) {
     }
     return lines;
 }
-function diffLines(oldLines, newLines) {
-    const table = buildLcsTable(oldLines, newLines);
-    const output = [];
-    let oldIndex = 0;
-    let newIndex = 0;
-    while (oldIndex < oldLines.length && newIndex < newLines.length) {
-        if (oldLines[oldIndex] === newLines[newIndex]) {
-            output.push(` ${oldLines[oldIndex]}`);
-            oldIndex += 1;
-            newIndex += 1;
-        }
-        else if (table[oldIndex + 1][newIndex] >= table[oldIndex][newIndex + 1]) {
-            output.push(`-${oldLines[oldIndex]}`);
-            oldIndex += 1;
-        }
-        else {
-            output.push(`+${newLines[newIndex]}`);
-            newIndex += 1;
-        }
-    }
-    while (oldIndex < oldLines.length) {
-        output.push(`-${oldLines[oldIndex]}`);
-        oldIndex += 1;
-    }
-    while (newIndex < newLines.length) {
-        output.push(`+${newLines[newIndex]}`);
-        newIndex += 1;
-    }
-    return output;
+function rangeStart(lines) {
+    return lines.length === 0 ? 0 : 1;
 }
-function buildLcsTable(oldLines, newLines) {
-    const table = Array.from({ length: oldLines.length + 1 }, () => Array(newLines.length + 1).fill(0));
-    for (let oldIndex = oldLines.length - 1; oldIndex >= 0; oldIndex -= 1) {
-        for (let newIndex = newLines.length - 1; newIndex >= 0; newIndex -= 1) {
-            table[oldIndex][newIndex] =
-                oldLines[oldIndex] === newLines[newIndex]
-                    ? table[oldIndex + 1][newIndex + 1] + 1
-                    : Math.max(table[oldIndex + 1][newIndex], table[oldIndex][newIndex + 1]);
-        }
+class BoundedDiffBuilder {
+    maxLength;
+    parts = [];
+    length = 0;
+    truncated = false;
+    constructor(maxLength) {
+        this.maxLength = maxLength;
     }
-    return table;
+    addLine(line) {
+        if (this.truncated) {
+            return;
+        }
+        const prefix = this.parts.length === 0 ? "" : "\n";
+        const next = `${prefix}${line}`;
+        const remaining = this.maxLength - this.truncationSuffix().length - this.length;
+        if (remaining < next.length) {
+            if (remaining > 0) {
+                this.parts.push(next.slice(0, remaining));
+            }
+            this.length = this.maxLength - this.truncationSuffix().length;
+            this.truncated = true;
+            return;
+        }
+        this.parts.push(next);
+        this.length += next.length;
+    }
+    text() {
+        return `${this.parts.join("")}${this.truncated ? this.truncationSuffix() : ""}`;
+    }
+    truncationSuffix() {
+        return truncationNotice.slice(0, Math.max(0, this.maxLength));
+    }
 }
 
 ;// CONCATENATED MODULE: ./lib/errors.js
@@ -28573,7 +28575,7 @@ async function writeRunSummary(report) {
 async function publishPullRequestReport(report) {
     const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
     if (!token) {
-        core.info("skipping pull request report: GITHUB_TOKEN is not available");
+        core.info("skipping pull request report: no GitHub token is available");
         return;
     }
     const context = await getPullRequestContext();
@@ -28644,8 +28646,7 @@ function fencedDiff(diff) {
     if (!diff.hasChanges) {
         return diff.text;
     }
-    const truncation = diff.truncated ? "\n\nDiff was truncated because it exceeded the maximum report size." : "";
-    return `\`\`\`diff\n${diff.text}\n\`\`\`${truncation}`;
+    return `\`\`\`diff\n${diff.text}\n\`\`\``;
 }
 function describeOutcome(report) {
     if (report.outcome === "validated") {
@@ -28686,8 +28687,16 @@ async function getPullRequestContext() {
     return { owner, repo, number };
 }
 async function findExistingComment(context, token) {
-    const comments = (await githubRequest(`https://api.github.com/repos/${context.owner}/${context.repo}/issues/${context.number}/comments?per_page=100`, token, { method: "GET" }));
-    return comments.find((comment) => comment.body?.includes(commentMarker))?.id;
+    for (let page = 1;; page += 1) {
+        const comments = (await githubRequest(`https://api.github.com/repos/${context.owner}/${context.repo}/issues/${context.number}/comments?per_page=100&sort=updated&direction=desc&page=${page}`, token, { method: "GET" }));
+        const comment = comments.find((comment) => comment.body?.includes(commentMarker));
+        if (comment) {
+            return comment.id;
+        }
+        if (comments.length < 100) {
+            return undefined;
+        }
+    }
 }
 async function githubRequest(url, token, init) {
     const resp = await fetch(url, {
@@ -28741,7 +28750,19 @@ class TailscaleClient {
         };
     }
     async getACLETag() {
-        return (await this.getACL()).etag;
+        const resp = await fetch(`${this.baseURL}/acl`, {
+            method: "GET",
+            headers: {
+                Accept: "application/hujson",
+                Authorization: this.authHeader,
+            },
+        });
+        if (resp.status !== 200) {
+            const errorDetails = await resp.text();
+            throw new Error(`wanted HTTP status code 200 but got ${resp.status}: ${JSON.stringify(errorDetails)}`);
+        }
+        await resp.body?.cancel();
+        return shuck(resp.headers.get("etag") ?? "");
     }
     async applyACL(policyFile, policy, oldEtag) {
         const resp = await fetch(`${this.baseURL}/acl`, {
@@ -28827,7 +28848,9 @@ async function run() {
         const controlEtag = control.etag;
         const policy = await external_node_fs_namespaceObject.promises.readFile(policyFile, "utf8");
         const localEtag = hashFormattedHuJSON(policy);
-        const diff = createPolicyDiff(control.policy, policy, {
+        const formattedPolicy = formatHuJSON(policy);
+        const diffBase = controlEtag === localEtag ? formattedPolicy : formatHuJSON(control.policy);
+        const diff = createPolicyDiff(diffBase, formattedPolicy, {
             fromFile: "tailscale-control-policy.hujson",
             toFile: policyFile,
         });

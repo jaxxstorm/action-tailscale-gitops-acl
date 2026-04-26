@@ -63,12 +63,27 @@ describe("run", () => {
     });
   });
 
+  it("does not report a diff for formatting-only policy differences", async () => {
+    await inTempDir(async () => {
+      const policy = "{\n  \"acls\": []\n}\n";
+      await writeFile("policy.hujson", policy);
+      const local = hashFormattedHuJSON(policy);
+      vi.mocked(fetch).mockResolvedValue(
+        new Response('{"acls":[]}\n', { status: 200, headers: { ETag: `"${local}"` } }),
+      );
+
+      await run();
+
+      expect(core.summary.addRaw).toHaveBeenCalledWith(expect.stringContaining("No policy diff is present."));
+    });
+  });
+
   it("validates standardized policy when changed", async () => {
     await inTempDir(async () => {
       const policy = "{\n// comment\n\"acls\": [],\n}\n";
       await writeFile("policy.hujson", policy);
       vi.mocked(fetch)
-        .mockResolvedValueOnce(new Response("", { status: 200, headers: { ETag: '"control"' } }))
+        .mockResolvedValueOnce(new Response('{"acls":[{"action":"accept"}]}\n', { status: 200, headers: { ETag: '"control"' } }))
         .mockResolvedValueOnce(new Response("{}", { status: 200 }));
 
       await run();
@@ -93,7 +108,7 @@ describe("run", () => {
       const policy = "{\n// raw comment\n\"acls\": [],\n}\n";
       await writeFile("policy.hujson", policy);
       vi.mocked(fetch)
-        .mockResolvedValueOnce(new Response("", { status: 200, headers: { ETag: '"control"' } }))
+        .mockResolvedValueOnce(new Response('{"acls":[{"action":"accept"}]}\n', { status: 200, headers: { ETag: '"control"' } }))
         .mockResolvedValueOnce(new Response("", { status: 200 }));
 
       await run();
@@ -117,7 +132,7 @@ describe("run", () => {
       await writeFile("policy.hujson", '{"acls":[]}\n');
       await writeFile("version-cache.json", '{"PrevETag":"old"}\n');
       vi.mocked(fetch)
-        .mockResolvedValueOnce(new Response("", { status: 200, headers: { ETag: '"control"' } }))
+        .mockResolvedValueOnce(new Response('{"acls":[{"action":"accept"}]}\n', { status: 200, headers: { ETag: '"control"' } }))
         .mockResolvedValueOnce(new Response("{}", { status: 200 }));
 
       await run();
@@ -130,7 +145,7 @@ describe("run", () => {
     await inTempDir(async () => {
       await writeFile("policy.hujson", '{"acls":[]}\n');
       vi.mocked(fetch)
-        .mockResolvedValueOnce(new Response("", { status: 200, headers: { ETag: '"control"' } }))
+        .mockResolvedValueOnce(new Response('{"acls":[{"action":"accept"}]}\n', { status: 200, headers: { ETag: '"control"' } }))
         .mockResolvedValueOnce(new Response(JSON.stringify({ Message: "line 1, column 1: bad" }), { status: 400 }));
 
       await expect(run()).rejects.toThrow("bad");

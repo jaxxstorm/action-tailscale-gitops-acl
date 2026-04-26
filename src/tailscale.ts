@@ -37,7 +37,19 @@ export class TailscaleClient {
   }
 
   async getACLETag(): Promise<string> {
-    return (await this.getACL()).etag;
+    const resp = await fetch(`${this.baseURL}/acl`, {
+      method: "GET",
+      headers: {
+        Accept: "application/hujson",
+        Authorization: this.authHeader,
+      },
+    });
+    if (resp.status !== 200) {
+      const errorDetails = await resp.text();
+      throw new Error(`wanted HTTP status code 200 but got ${resp.status}: ${JSON.stringify(errorDetails)}`);
+    }
+    await resp.body?.cancel();
+    return shuck(resp.headers.get("etag") ?? "");
   }
 
   async applyACL(policyFile: string, policy: string, oldEtag: string): Promise<void> {

@@ -105,6 +105,47 @@ describe("reporting", () => {
     );
   });
 
+  it("paginates when finding an existing action-owned pull request comment", async () => {
+    const eventPath = await writePullRequestEvent();
+    vi.stubEnv("GITHUB_TOKEN", "token");
+    vi.stubEnv("GITHUB_EVENT_NAME", "pull_request");
+    vi.stubEnv("GITHUB_EVENT_PATH", eventPath);
+    vi.stubEnv("GITHUB_REPOSITORY", "owner/repo");
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(Array.from({ length: 100 }, (_, id) => ({ id }))), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ id: 101, body: "<!-- action-tailscale-gitops-acl:run-report -->" }]), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+
+    await publishPullRequestReport({
+      mode: "test",
+      tailnet: "example.com",
+      policyFile: "policy.hujson",
+      outcome: "validated",
+      policyChanged: false,
+    });
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "https://api.github.com/repos/owner/repo/issues/12/comments?per_page=100&sort=updated&direction=desc&page=1",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "https://api.github.com/repos/owner/repo/issues/12/comments?per_page=100&sort=updated&direction=desc&page=2",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetch).toHaveBeenLastCalledWith(
+      "https://api.github.com/repos/owner/repo/issues/comments/101",
+      expect.objectContaining({ method: "PATCH" }),
+    );
+  });
+
   it("skips pull request comments when no token is available", async () => {
     await publishPullRequestReport({
       mode: "test",
@@ -115,7 +156,7 @@ describe("reporting", () => {
     });
 
     expect(fetch).not.toHaveBeenCalled();
-    expect(core.info).toHaveBeenCalledWith("skipping pull request report: GITHUB_TOKEN is not available");
+    expect(core.info).toHaveBeenCalledWith("skipping pull request report: no GitHub token is available");
   });
 
   it("does not fail the action when reporting fails", async () => {

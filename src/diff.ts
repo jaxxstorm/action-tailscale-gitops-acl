@@ -11,6 +11,7 @@ interface DiffOptions {
 }
 
 const defaultMaxLength = 60000;
+const truncationNotice = "\n\nDiff was truncated because it exceeded the maximum report size.";
 
 export function createPolicyDiff(oldText: string, newText: string, options: DiffOptions): PolicyDiff {
   if (oldText === newText) {
@@ -22,25 +23,33 @@ export function createPolicyDiff(oldText: string, newText: string, options: Diff
   }
 
   const maxLength = options.maxLength ?? defaultMaxLength;
-  const diff = [
-    `--- ${options.fromFile}`,
-    `+++ ${options.toFile}`,
-    ...diffLines(splitLines(oldText), splitLines(newText)),
-  ].join("\n");
+  const oldLines = splitLines(oldText);
+  const newLines = splitLines(newText);
+  const builder = new BoundedDiffBuilder(maxLength);
+  builder.addLine(`--- ${options.fromFile}`);
+  builder.addLine(`+++ ${options.toFile}`);
+  builder.addLine(`@@ -${rangeStart(oldLines)},${oldLines.length} +${rangeStart(newLines)},${newLines.length} @@`);
 
-  if (diff.length <= maxLength) {
-    return {
-      hasChanges: true,
-      text: diff,
-      truncated: false,
-    };
+  for (const line of oldLines) {
+    builder.addLine(`-${line}`);
+    if (builder.truncated) {
+      break;
+    }
   }
 
-  const notice = "\n\n[Diff truncated because it exceeded the maximum report size.]";
+  if (!builder.truncated) {
+    for (const line of newLines) {
+      builder.addLine(`+${line}`);
+      if (builder.truncated) {
+        break;
+      }
+    }
+  }
+
   return {
     hasChanges: true,
-    text: `${diff.slice(0, Math.max(0, maxLength - notice.length))}${notice}`,
-    truncated: true,
+    text: builder.text(),
+    truncated: builder.truncated,
   };
 }
 
@@ -55,50 +64,43 @@ function splitLines(text: string): string[] {
   return lines;
 }
 
-function diffLines(oldLines: string[], newLines: string[]): string[] {
-  const table = buildLcsTable(oldLines, newLines);
-  const output: string[] = [];
-  let oldIndex = 0;
-  let newIndex = 0;
-
-  while (oldIndex < oldLines.length && newIndex < newLines.length) {
-    if (oldLines[oldIndex] === newLines[newIndex]) {
-      output.push(` ${oldLines[oldIndex]}`);
-      oldIndex += 1;
-      newIndex += 1;
-    } else if (table[oldIndex + 1][newIndex] >= table[oldIndex][newIndex + 1]) {
-      output.push(`-${oldLines[oldIndex]}`);
-      oldIndex += 1;
-    } else {
-      output.push(`+${newLines[newIndex]}`);
-      newIndex += 1;
-    }
-  }
-
-  while (oldIndex < oldLines.length) {
-    output.push(`-${oldLines[oldIndex]}`);
-    oldIndex += 1;
-  }
-
-  while (newIndex < newLines.length) {
-    output.push(`+${newLines[newIndex]}`);
-    newIndex += 1;
-  }
-
-  return output;
+function rangeStart(lines: string[]): number {
+  return lines.length === 0 ? 0 : 1;
 }
 
-function buildLcsTable(oldLines: string[], newLines: string[]): number[][] {
-  const table = Array.from({ length: oldLines.length + 1 }, () => Array<number>(newLines.length + 1).fill(0));
+class BoundedDiffBuilder {
+  private readonly parts: string[] = [];
+  private length = 0;
+  truncated = false;
 
-  for (let oldIndex = oldLines.length - 1; oldIndex >= 0; oldIndex -= 1) {
-    for (let newIndex = newLines.length - 1; newIndex >= 0; newIndex -= 1) {
-      table[oldIndex][newIndex] =
-        oldLines[oldIndex] === newLines[newIndex]
-          ? table[oldIndex + 1][newIndex + 1] + 1
-          : Math.max(table[oldIndex + 1][newIndex], table[oldIndex][newIndex + 1]);
+  constructor(private readonly maxLength: number) {}
+
+  addLine(line: string): void {
+    if (this.truncated) {
+      return;
     }
+
+    const prefix = this.parts.length === 0 ? "" : "\n";
+    const next = `${prefix}${line}`;
+    const remaining = this.maxLength - this.truncationSuffix().length - this.length;
+    if (remaining < next.length) {
+      if (remaining > 0) {
+        this.parts.push(next.slice(0, remaining));
+      }
+      this.length = this.maxLength - this.truncationSuffix().length;
+      this.truncated = true;
+      return;
+    }
+
+    this.parts.push(next);
+    this.length += next.length;
   }
 
-  return table;
+  text(): string {
+    return `${this.parts.join("")}${this.truncated ? this.truncationSuffix() : ""}`;
+  }
+
+  private truncationSuffix(): string {
+    return truncationNotice.slice(0, Math.max(0, this.maxLength));
+  }
 }

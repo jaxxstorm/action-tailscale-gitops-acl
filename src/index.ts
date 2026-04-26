@@ -5,7 +5,7 @@ import { getCredentials } from "./auth.js";
 import { loadCache, saveCache } from "./cache.js";
 import { createPolicyDiff } from "./diff.js";
 import { ACLGitopsTestError, modifiedExternallyWarning } from "./errors.js";
-import { hashFormattedHuJSON, standardizeHuJSON } from "./hujson/index.js";
+import { formatHuJSON, hashFormattedHuJSON, standardizeHuJSON } from "./hujson/index.js";
 import { reportRun, RunMode, RunReport } from "./reporting.js";
 import { TailscaleClient } from "./tailscale.js";
 
@@ -45,7 +45,9 @@ export async function run(): Promise<void> {
     const controlEtag = control.etag;
     const policy = await fs.readFile(policyFile, "utf8");
     const localEtag = hashFormattedHuJSON(policy);
-    const diff = createPolicyDiff(control.policy, policy, {
+    const formattedPolicy = formatHuJSON(policy);
+    const diffBase = controlEtag === localEtag ? formattedPolicy : formatHuJSON(control.policy);
+    const diff = createPolicyDiff(diffBase, formattedPolicy, {
       fromFile: "tailscale-control-policy.hujson",
       toFile: policyFile,
     });

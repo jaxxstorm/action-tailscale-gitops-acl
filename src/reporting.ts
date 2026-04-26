@@ -39,7 +39,7 @@ export async function writeRunSummary(report: RunReport): Promise<void> {
 export async function publishPullRequestReport(report: RunReport): Promise<void> {
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   if (!token) {
-    core.info("skipping pull request report: GITHUB_TOKEN is not available");
+    core.info("skipping pull request report: no GitHub token is available");
     return;
   }
 
@@ -121,8 +121,7 @@ function fencedDiff(diff: PolicyDiff): string {
   if (!diff.hasChanges) {
     return diff.text;
   }
-  const truncation = diff.truncated ? "\n\nDiff was truncated because it exceeded the maximum report size." : "";
-  return `\`\`\`diff\n${diff.text}\n\`\`\`${truncation}`;
+  return `\`\`\`diff\n${diff.text}\n\`\`\``;
 }
 
 function describeOutcome(report: RunReport): string {
@@ -172,13 +171,21 @@ async function getPullRequestContext(): Promise<PullRequestContext | undefined> 
 }
 
 async function findExistingComment(context: PullRequestContext, token: string): Promise<number | undefined> {
-  const comments = (await githubRequest(
-    `https://api.github.com/repos/${context.owner}/${context.repo}/issues/${context.number}/comments?per_page=100`,
-    token,
-    { method: "GET" },
-  )) as Array<{ id: number; body?: string }>;
+  for (let page = 1; ; page += 1) {
+    const comments = (await githubRequest(
+      `https://api.github.com/repos/${context.owner}/${context.repo}/issues/${context.number}/comments?per_page=100&sort=updated&direction=desc&page=${page}`,
+      token,
+      { method: "GET" },
+    )) as Array<{ id: number; body?: string }>;
 
-  return comments.find((comment) => comment.body?.includes(commentMarker))?.id;
+    const comment = comments.find((comment) => comment.body?.includes(commentMarker));
+    if (comment) {
+      return comment.id;
+    }
+    if (comments.length < 100) {
+      return undefined;
+    }
+  }
 }
 
 async function githubRequest(url: string, token: string, init: RequestInit): Promise<unknown> {

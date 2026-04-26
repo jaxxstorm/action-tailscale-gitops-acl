@@ -13,6 +13,7 @@ describe("createPolicyDiff", () => {
       text: [
         "--- control.hujson",
         "+++ policy.hujson",
+        "@@ -1,1 +1,1 @@",
         '-{"acls":[]}',
         '+{"acls":[{"action":"accept"}]}',
       ].join("\n"),
@@ -41,6 +42,21 @@ describe("createPolicyDiff", () => {
 
     expect(diff.hasChanges).toBe(true);
     expect(diff.truncated).toBe(true);
-    expect(diff.text).toContain("Diff truncated");
+    expect(diff.text).toContain("Diff was truncated");
+  });
+
+  it("does not allocate a quadratic table for large policies", () => {
+    const oldText = `${Array.from({ length: 5000 }, (_, index) => `old-${index}`).join("\n")}\n`;
+    const newText = `${Array.from({ length: 5000 }, (_, index) => `new-${index}`).join("\n")}\n`;
+
+    const diff = createPolicyDiff(oldText, newText, {
+      fromFile: "control.hujson",
+      toFile: "policy.hujson",
+      maxLength: 1000,
+    });
+
+    expect(diff.hasChanges).toBe(true);
+    expect(diff.truncated).toBe(true);
+    expect(diff.text.length).toBeLessThanOrEqual(1000);
   });
 });
