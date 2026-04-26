@@ -155,8 +155,8 @@ To enable the OIDC job:
    Actions OIDC tokens. For pull request and push coverage, allow the repository
    and branch/event subjects you expect to run.
 3. Add these GitHub Actions secrets to the repository:
-   - `TS_OIDC_CLIENT_ID`: the federated identity client ID.
-   - `TS_OIDC_AUDIENCE`: the federated identity audience.
+   - `TS_OAUTH_ID`: the federated identity client ID.
+   - `TS_AUDIENCE`: the federated identity audience.
    - `TS_TAILNET`: the dedicated test tailnet name.
 4. Run the `Integration` workflow manually in `test` mode first.
 5. After the test mode passes, run it manually in `apply` mode or merge a change
@@ -175,3 +175,5 @@ To enable the OAuth credentials job:
 
 Both integration jobs always run. Missing or invalid credentials fail the
 workflow, which keeps credential drift visible in CI.
+The jobs run in series, and the workflow has a concurrency group so separate
+integration runs do not update the ACL at the same time.

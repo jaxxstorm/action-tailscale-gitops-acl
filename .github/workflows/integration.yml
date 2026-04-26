@@ -20,6 +20,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: tailscale-acl-integration
+  cancel-in-progress: false
+
 env:
   TS_POLICY_FILE: test/fixtures/policy.hujson
 
@@ -60,8 +64,8 @@ jobs:
           )
         uses: ./
         with:
-          oauth-client-id: ${{ secrets.TS_OIDC_CLIENT_ID }}
-          audience: ${{ secrets.TS_OIDC_AUDIENCE }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
           tailnet: ${{ secrets.TS_TAILNET }}
           policy-file: ${{ env.TS_POLICY_FILE }}
           action: test
@@ -74,8 +78,8 @@ jobs:
           )
         uses: ./
         with:
-          oauth-client-id: ${{ secrets.TS_OIDC_CLIENT_ID }}
-          audience: ${{ secrets.TS_OIDC_AUDIENCE }}
+          oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
+          audience: ${{ secrets.TS_AUDIENCE }}
           tailnet: ${{ secrets.TS_TAILNET }}
           policy-file: ${{ env.TS_POLICY_FILE }}
           action: apply
@@ -83,6 +87,8 @@ jobs:
   oauth-credentials:
     name: OAuth credentials test
     runs-on: ubuntu-latest
+    needs: oidc
+    if: ${{ always() }}
 
     steps:
       - name: Checkout
