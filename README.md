@@ -133,6 +133,22 @@ npm run build
 The generated `dist/index.js` file is committed so users of the action do not
 need to install dependencies at runtime.
 
+## Releasing
+
+Releases are published from immutable git tags. This repository does not use
+moving major-version tags such as `v1` or `v2`.
+
+To publish a release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The `.github/workflows/release.yml` workflow runs tests, rebuilds the checked-in
+action bundle, verifies `dist/` is already up to date, and then publishes a
+GitHub Release with generated release notes.
+
 ## Integration test setup
 
 The repository includes `.github/workflows/integration.yml`, which exercises the
